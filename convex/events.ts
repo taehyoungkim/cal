@@ -23,6 +23,32 @@ export const list = query({
   },
 })
 
+export const search = query({
+  args: { query: v.string() },
+  returns: v.array(eventDoc),
+  handler: async (ctx, args) => {
+    const text = args.query.trim()
+    if (text === "") return []
+    // Relevance-ordered; the last term matches as a prefix, so this
+    // doubles as typeahead.
+    return await ctx.db
+      .query("events")
+      .withSearchIndex("search_title", (q) => q.search("title", text))
+      .take(8)
+  },
+})
+
+export const upcoming = query({
+  args: { after: v.number() },
+  returns: v.array(eventDoc),
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("events")
+      .withIndex("by_time", (q) => q.gte("time", args.after))
+      .take(5)
+  },
+})
+
 export const create = mutation({
   args: {
     title: v.string(),

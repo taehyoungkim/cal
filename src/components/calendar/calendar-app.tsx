@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { api } from "../../../convex/_generated/api"
 import {
   VIEW_DAY_COUNT,
+  categoriesById,
   categoryColor,
   conflictsAt,
   dayEndMs,
@@ -29,6 +30,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { CategoryDot } from "./category-picker"
 import { ConflictDialog } from "./conflict-dialog"
 import { EventDialog } from "./event-dialog"
+import { EventSearch } from "./event-search"
 import type { EventDialogState } from "./event-dialog"
 import { TimeGrid } from "./time-grid"
 import type { GridEvent } from "./time-grid"
@@ -42,9 +44,7 @@ const VIEWS: Array<{ value: CalendarView; label: string }> = [
 export function CalendarApp() {
   const [anchor, setAnchor] = React.useState(() => startOfDay(new Date()))
   // Rendered client-side only (behind the code gate), so window is available.
-  const [isNarrow, setIsNarrow] = React.useState(
-    () => window.innerWidth < 640
-  )
+  const [isNarrow, setIsNarrow] = React.useState(() => window.innerWidth < 640)
   const [view, setView] = React.useState<CalendarView>(
     isNarrow ? "day" : "week"
   )
@@ -57,6 +57,16 @@ export function CalendarApp() {
     time: number
     conflicts: Array<CalendarEvent>
   } | null>(null)
+  const [highlightId, setHighlightId] = React.useState<
+    CalendarEvent["_id"] | null
+  >(null)
+
+  // The highlight ring on a searched-for event fades out on its own.
+  React.useEffect(() => {
+    if (!highlightId) return
+    const timer = setTimeout(() => setHighlightId(null), 2500)
+    return () => clearTimeout(timer)
+  }, [highlightId])
 
   React.useEffect(() => {
     const mq = window.matchMedia("(max-width: 639px)")
@@ -80,13 +90,17 @@ export function CalendarApp() {
   const updateEvent = useMutation(api.events.update)
 
   const gridEvents: Array<GridEvent> = React.useMemo(() => {
-    const byId = new Map(categories.map((c) => [c._id, c]))
+    const byId = categoriesById(categories)
     return (events ?? [])
       .filter((e) => !e.categoryId || !hidden.has(e.categoryId))
-      .map((e) => ({
-        ...e,
-        color: categoryColor(e.categoryId ? byId.get(e.categoryId) : undefined),
-      }))
+      .map((e) => {
+        const category = e.categoryId ? byId.get(e.categoryId) : undefined
+        return {
+          ...e,
+          color: categoryColor(category),
+          categoryName: category?.name,
+        }
+      })
   }, [events, categories, hidden])
 
   const navigate = (date: Date) => {
@@ -114,6 +128,15 @@ export function CalendarApp() {
   const views = isNarrow ? VIEWS.filter((v) => v.value !== "week") : VIEWS
 
   const pendingTime = dialog?.mode === "create" ? dialog.time.getTime() : null
+
+  // Jump the calendar to a searched-for event and pulse it.
+  const revealEvent = (event: CalendarEvent) => {
+    navigate(new Date(event.time))
+    if (event.categoryId && hidden.has(event.categoryId)) {
+      toggleCategory(event.categoryId)
+    }
+    setHighlightId(event._id)
+  }
 
   const handleEventMove = (event: GridEvent, time: Date) => {
     const t = time.getTime()
@@ -204,7 +227,7 @@ export function CalendarApp() {
                 variant="ghost"
                 size="icon-sm"
                 aria-label="Open calendar menu"
-                className="md:hidden active:scale-[0.96]"
+                className="active:scale-[0.96] md:hidden"
               />
             }
           >
@@ -249,7 +272,8 @@ export function CalendarApp() {
           </Button>
         </div>
         <h1 className="min-w-0 truncate text-base sm:text-lg">{title}</h1>
-        <div className="ml-auto shrink-0">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <EventSearch categories={categories} onPick={revealEvent} />
           <ToggleGroup
             value={[view]}
             onValueChange={(value: Array<unknown>) => {
@@ -282,6 +306,7 @@ export function CalendarApp() {
             days={days}
             events={gridEvents}
             pendingTime={pendingTime}
+            highlightId={highlightId}
             onSlotClick={(time) => setDialog({ mode: "create", time })}
             onEventClick={(event) => setDialog({ mode: "edit", event })}
             onEventMove={handleEventMove}

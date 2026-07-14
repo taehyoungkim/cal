@@ -41,6 +41,12 @@ export function categoryColor(category: Category | undefined): string {
   return category?.color ?? DEFAULT_EVENT_COLOR
 }
 
+export function categoriesById(
+  categories: Array<Category>
+): Map<Category["_id"], Category> {
+  return new Map(categories.map((c) => [c._id, c]))
+}
+
 export function nextCategoryColor(existing: Array<Category>): string {
   const used = new Set(existing.map((c) => c.color))
   const unused = CATEGORY_COLORS.filter((color) => !used.has(color))
@@ -85,11 +91,11 @@ export function dayEndMs(day: Date): number {
 }
 
 /** Events already booked at exactly `time`, excluding the event being placed. */
-export function conflictsAt(
-  events: Array<CalendarEvent>,
+export function conflictsAt<T extends CalendarEvent>(
+  events: Array<T>,
   time: number,
   excludeId?: CalendarEvent["_id"]
-): Array<CalendarEvent> {
+): Array<T> {
   return events.filter((e) => e.time === time && e._id !== excludeId)
 }
 

@@ -3,6 +3,7 @@ import { format, isToday } from "date-fns"
 import {
   MIN_HOUR_HEIGHT,
   UNTITLED_EVENT,
+  conflictsAt,
   dateAtMinutes,
   dayEndMs,
   formatMinutes,
@@ -12,8 +13,12 @@ import {
 } from "@/lib/calendar"
 import type { CalendarEvent } from "@/lib/calendar"
 import { cn } from "@/lib/utils"
+import { EventPeek } from "./event-peek"
 
-export type GridEvent = CalendarEvent & { color: string }
+export type GridEvent = CalendarEvent & {
+  color: string
+  categoryName?: string
+}
 
 const MARKER_HEIGHT = 24
 
@@ -24,6 +29,7 @@ export function TimeGrid({
   days,
   events,
   pendingTime,
+  highlightId,
   onSlotClick,
   onEventClick,
   onEventMove,
@@ -33,6 +39,8 @@ export function TimeGrid({
   events: Array<GridEvent>
   /** time (epoch ms) currently being created — shown as a ghost marker */
   pendingTime: number | null
+  /** event to scroll into view and pulse (e.g. picked from search) */
+  highlightId: string | null
   onSlotClick: (time: Date) => void
   onEventClick: (event: GridEvent) => void
   onEventMove: (event: GridEvent, time: Date) => void
@@ -69,6 +77,19 @@ export function TimeGrid({
     const timer = setInterval(() => setNow(new Date()), 60_000)
     return () => clearInterval(timer)
   }, [])
+
+  // Center the highlighted event vertically. `events` stays a dependency
+  // because the target may still be loading when the highlight is set.
+  React.useEffect(() => {
+    const el = scrollRef.current
+    if (!highlightId || !el) return
+    const target = events.find((e) => e._id === highlightId)
+    if (!target) return
+    const top =
+      (minutesIntoDay(new Date(target.time)) / 60) * hourHeight -
+      el.clientHeight / 2
+    el.scrollTo({ top: Math.max(0, top), behavior: "smooth" })
+  }, [highlightId, events, hourHeight])
 
   const gridHeight = 24 * hourHeight
 
@@ -164,10 +185,7 @@ export function TimeGrid({
       {/* Grid body */}
       <div className="relative flex">
         {/* Hour labels */}
-        <div
-          className="relative w-14 shrink-0"
-          style={{ height: gridHeight }}
-        >
+        <div className="relative w-14 shrink-0" style={{ height: gridHeight }}>
           {Array.from({ length: 23 }, (_, i) => i + 1).map((hour) => (
             <span
               key={hour}
@@ -188,6 +206,7 @@ export function TimeGrid({
             events={events}
             moving={moving}
             pendingTime={pendingTime}
+            highlightId={highlightId}
             now={now}
             hourHeight={hourHeight}
             gridHeight={gridHeight}
@@ -206,6 +225,7 @@ function DayColumn({
   events,
   moving,
   pendingTime,
+  highlightId,
   now,
   hourHeight,
   gridHeight,
@@ -217,6 +237,7 @@ function DayColumn({
   events: Array<GridEvent>
   moving: { id: string; min: number } | null
   pendingTime: number | null
+  highlightId: string | null
   now: Date
   hourHeight: number
   gridHeight: number
@@ -235,21 +256,22 @@ function DayColumn({
   // The hover "dial": a snapped time indicator that follows the cursor.
   const [dial, setDial] = React.useState<number | null>(null)
 
-  const positioned = React.useMemo(
-    () =>
-      layoutDayEvents(
-        events
-          .filter((e) => e.time >= dayStart && e.time < dayEnd)
-          .map((e) => ({
-            item: e,
-            startMin:
-              moving?.id === e._id
-                ? moving.min
-                : minutesIntoDay(new Date(e.time)),
-          }))
-      ),
-    [events, dayStart, dayEnd, moving]
-  )
+  const positioned = React.useMemo(() => {
+    const dayEvents = events.filter(
+      (e) => e.time >= dayStart && e.time < dayEnd
+    )
+    return layoutDayEvents(
+      dayEvents.map((e) => ({
+        item: e,
+        startMin:
+          moving?.id === e._id ? moving.min : minutesIntoDay(new Date(e.time)),
+      }))
+      // Same-time events always share a day, so dayEvents covers them.
+    ).map((p) => ({
+      ...p,
+      conflicts: conflictsAt(dayEvents, p.item.time, p.item._id),
+    }))
+  }, [events, dayStart, dayEnd, moving])
 
   const markerTop = (startMin: number) =>
     Math.min(
@@ -277,64 +299,88 @@ function DayColumn({
     >
       {dial !== null && moving === null && (
         <div
-          className="pointer-events-none absolute inset-x-0 z-20 transition-[top] duration-150 ease-out animate-in fade-in"
+          className="pointer-events-none absolute inset-x-0 z-20 animate-in transition-[top] duration-150 ease-out fade-in"
           style={{ top: (dial / 60) * hourHeight }}
         >
           <div className="border-t border-dashed border-primary/50" />
-          <span className="absolute top-0 left-1.5 origin-left -translate-y-1/2 rounded-full border border-primary/25 bg-background px-1.5 py-0.5 text-[10px] font-medium text-primary tabular-nums shadow-xs animate-in fade-in zoom-in-75 duration-200">
+          <span className="absolute top-0 left-1.5 origin-left -translate-y-1/2 animate-in rounded-full border border-primary/25 bg-background px-1.5 py-0.5 text-[10px] font-medium text-primary tabular-nums shadow-xs duration-200 zoom-in-75 fade-in">
             {format(dateAtMinutes(day, dial), "h:mm a")}
           </span>
         </div>
       )}
-      {positioned.map(({ item, startMin, col, cols }, i) => {
+      {positioned.map(({ item, startMin, col, cols, conflicts }, i) => {
         const isMoving = moving?.id === item._id
+        const left = `calc((100% - 10px) * ${col / cols} + 3px)`
+        const width = `calc((100% - 10px) * ${1 / cols} - 3px)`
         return (
-          <div
-            key={item._id}
-            role="button"
-            tabIndex={0}
-            className={cn(
-              "absolute z-10 flex cursor-grab items-center gap-1.5 overflow-hidden rounded-full border border-black/5 px-2 shadow-xs dark:border-white/10",
-              "transition-[top,left,width,scale,box-shadow] duration-200 ease-out animate-in fade-in zoom-in-90 fill-mode-backwards hover:scale-[1.03] hover:shadow-md",
-              isMoving && "z-30 scale-[1.03] cursor-grabbing shadow-lg"
+          <React.Fragment key={item._id}>
+            <EventPeek
+              event={item}
+              conflicts={conflicts}
+              disabled={moving !== null}
+            >
+              <div
+                role="button"
+                tabIndex={0}
+                className={cn(
+                  "absolute z-10 flex cursor-grab items-center gap-1.5 overflow-hidden rounded-full border border-black/5 px-2 shadow-xs dark:border-white/10",
+                  "animate-in transition-[top,left,width,scale,box-shadow] duration-200 ease-out fill-mode-backwards zoom-in-90 fade-in hover:scale-[1.03] hover:shadow-md",
+                  isMoving && "z-30 scale-[1.03] cursor-grabbing shadow-lg"
+                )}
+                style={{
+                  top: markerTop(startMin),
+                  height: MARKER_HEIGHT,
+                  left,
+                  width,
+                  background: `color-mix(in oklab, ${item.color} 25%, var(--background))`,
+                  animationDelay: `${Math.min(i * 25, 250)}ms`,
+                }}
+                onMouseDown={(e) => onMarkerMouseDown(e, item, day, startMin)}
+                onClick={(e) => e.stopPropagation()}
+                onMouseEnter={() => setDial(null)}
+                onMouseMove={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    onEventClick(item)
+                  }
+                }}
+              >
+                <span
+                  aria-hidden
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: item.color }}
+                />
+                <span className="shrink-0 text-[10px] font-medium text-muted-foreground tabular-nums">
+                  {format(dateAtMinutes(day, startMin), "h:mm")}
+                </span>
+                <span className="truncate text-xs font-medium">
+                  {item.title || UNTITLED_EVENT}
+                </span>
+              </div>
+            </EventPeek>
+            {/* Search spotlight: a transient overlay so the pings never
+              contend with the marker's own enter animation. It ends
+              invisible, so unmounting it is seamless. */}
+            {highlightId === item._id && (
+              <div
+                aria-hidden
+                className="pointer-events-none absolute z-30 rounded-full motion-safe:animate-spotlight motion-reduce:ring-2 motion-reduce:ring-primary"
+                style={{
+                  top: markerTop(startMin),
+                  height: MARKER_HEIGHT,
+                  left,
+                  width,
+                }}
+              />
             )}
-            style={{
-              top: markerTop(startMin),
-              height: MARKER_HEIGHT,
-              left: `calc((100% - 10px) * ${col / cols} + 3px)`,
-              width: `calc((100% - 10px) * ${1 / cols} - 3px)`,
-              background: `color-mix(in oklab, ${item.color} 25%, var(--background))`,
-              animationDelay: `${Math.min(i * 25, 250)}ms`,
-            }}
-            onMouseDown={(e) => onMarkerMouseDown(e, item, day, startMin)}
-            onClick={(e) => e.stopPropagation()}
-            onMouseEnter={() => setDial(null)}
-            onMouseMove={(e) => e.stopPropagation()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault()
-                onEventClick(item)
-              }
-            }}
-          >
-            <span
-              aria-hidden
-              className="size-2 shrink-0 rounded-full"
-              style={{ backgroundColor: item.color }}
-            />
-            <span className="shrink-0 text-[10px] font-medium text-muted-foreground tabular-nums">
-              {format(dateAtMinutes(day, startMin), "h:mm")}
-            </span>
-            <span className="truncate text-xs font-medium">
-              {item.title || UNTITLED_EVENT}
-            </span>
-          </div>
+          </React.Fragment>
         )
       })}
 
       {pendingMin !== null && (
         <div
-          className="pointer-events-none absolute inset-x-1 z-20 flex items-center gap-1.5 rounded-full bg-primary px-2 text-primary-foreground shadow-md transition-[top] duration-200 ease-out animate-in fade-in zoom-in-95"
+          className="pointer-events-none absolute inset-x-1 z-20 flex animate-in items-center gap-1.5 rounded-full bg-primary px-2 text-primary-foreground shadow-md transition-[top] duration-200 ease-out zoom-in-95 fade-in"
           style={{ top: markerTop(pendingMin), height: MARKER_HEIGHT }}
         >
           <span className="text-[10px] font-medium tabular-nums">

@@ -25,7 +25,7 @@ export function ConflictList({
   categories: Array<Category>
 }) {
   return (
-    <div className="overflow-hidden rounded-2xl border border-amber-500/30 animate-in fade-in slide-in-from-top-2 duration-300">
+    <div className="animate-in overflow-hidden rounded-2xl border border-amber-500/30 duration-300 fade-in slide-in-from-top-2">
       <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-3 py-2">
         <TriangleAlert className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
         <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
@@ -39,7 +39,10 @@ export function ConflictList({
           )
           return (
             <li key={event._id} className="flex items-start gap-2.5 px-3 py-2">
-              <CategoryDot color={categoryColor(category)} className="mt-[5px]" />
+              <CategoryDot
+                color={categoryColor(category)}
+                className="mt-[5px]"
+              />
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="truncate text-sm font-medium">

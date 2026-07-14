@@ -16,6 +16,7 @@ import {
   snapMinutes,
 } from "@/lib/calendar"
 import type { CalendarEvent, Category } from "@/lib/calendar"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import {
@@ -119,6 +120,15 @@ function EventDialogBody({
     initial.categoryId
   )
   const [dateOpen, setDateOpen] = React.useState(false)
+  const [confirmDelete, setConfirmDelete] = React.useState(false)
+  const [deleting, setDeleting] = React.useState(false)
+
+  // An armed delete button quietly disarms if left alone.
+  React.useEffect(() => {
+    if (!confirmDelete) return
+    const timer = setTimeout(() => setConfirmDelete(false), 3000)
+    return () => clearTimeout(timer)
+  }, [confirmDelete])
 
   const time = dateAtMinutes(day, timeMin).getTime()
 
@@ -158,6 +168,7 @@ function EventDialogBody({
 
   const handleDelete = async () => {
     if (state.mode !== "edit") return
+    setDeleting(true)
     await removeEvent({ id: state.event._id })
     onClose()
   }
@@ -267,12 +278,23 @@ function EventDialogBody({
           {state.mode === "edit" && (
             <Button
               type="button"
-              variant="ghost"
-              onClick={handleDelete}
-              className="mr-auto text-destructive hover:text-destructive"
+              variant={confirmDelete ? "destructive" : "ghost"}
+              disabled={deleting}
+              aria-live="polite"
+              className={cn(
+                "mr-auto transition-[background-color,color,scale] active:scale-[0.96]",
+                confirmDelete
+                  ? "animate-shake"
+                  : "text-destructive hover:text-destructive"
+              )}
+              onClick={() => {
+                if (confirmDelete) void handleDelete()
+                else setConfirmDelete(true)
+              }}
+              onBlur={() => setConfirmDelete(false)}
             >
               <Trash2 className="size-4" />
-              Delete
+              {confirmDelete ? "Confirm delete" : "Delete"}
             </Button>
           )}
           <Button type="button" variant="outline" onClick={onClose}>
