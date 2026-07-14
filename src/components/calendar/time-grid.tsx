@@ -1,9 +1,11 @@
 import * as React from "react"
 import { format, isToday } from "date-fns"
 import {
-  DAY_MINUTES,
   MIN_HOUR_HEIGHT,
+  UNTITLED_EVENT,
   dateAtMinutes,
+  dayEndMs,
+  formatMinutes,
   layoutDayEvents,
   minutesIntoDay,
   snapMinutes,
@@ -14,6 +16,9 @@ import { cn } from "@/lib/utils"
 export type GridEvent = CalendarEvent & { color: string }
 
 const MARKER_HEIGHT = 24
+
+const minutesAtY = (clientY: number, rectTop: number, hourHeight: number) =>
+  snapMinutes(((clientY - rectTop) / hourHeight) * 60)
 
 export function TimeGrid({
   days,
@@ -76,8 +81,7 @@ export function TimeGrid({
       return
     }
     const rect = e.currentTarget.getBoundingClientRect()
-    const minutes = snapMinutes(((e.clientY - rect.top) / hourHeight) * 60)
-    onSlotClick(dateAtMinutes(day, minutes))
+    onSlotClick(dateAtMinutes(day, minutesAtY(e.clientY, rect.top, hourHeight)))
   }
 
   const startMarkerDrag = (
@@ -170,7 +174,7 @@ export function TimeGrid({
               className="absolute right-2 flex -translate-y-1/2 items-center gap-1 text-[10px] text-muted-foreground tabular-nums sm:text-[11px]"
               style={{ top: hour * hourHeight }}
             >
-              {format(new Date(2000, 0, 1, hour), "h a")}
+              {formatMinutes(hour * 60, "h a")}
               <span aria-hidden className="h-px w-1.5 bg-border" />
             </span>
           ))}
@@ -188,6 +192,7 @@ export function TimeGrid({
             hourHeight={hourHeight}
             gridHeight={gridHeight}
             onClick={(e) => handleColumnClick(e, day)}
+            onEventClick={onEventClick}
             onMarkerMouseDown={startMarkerDrag}
           />
         ))}
@@ -205,6 +210,7 @@ function DayColumn({
   hourHeight,
   gridHeight,
   onClick,
+  onEventClick,
   onMarkerMouseDown,
 }: {
   day: Date
@@ -215,6 +221,7 @@ function DayColumn({
   hourHeight: number
   gridHeight: number
   onClick: (e: React.MouseEvent<HTMLDivElement>) => void
+  onEventClick: (event: GridEvent) => void
   onMarkerMouseDown: (
     e: React.MouseEvent,
     event: GridEvent,
@@ -223,19 +230,25 @@ function DayColumn({
   ) => void
 }) {
   const dayStart = day.getTime()
-  const dayEnd = dayStart + DAY_MINUTES * 60_000
+  const dayEnd = dayEndMs(day)
 
   // The hover "dial": a snapped time indicator that follows the cursor.
   const [dial, setDial] = React.useState<number | null>(null)
 
-  const positioned = layoutDayEvents(
-    events
-      .filter((e) => e.time >= dayStart && e.time < dayEnd)
-      .map((e) => ({
-        item: e,
-        startMin:
-          moving?.id === e._id ? moving.min : minutesIntoDay(new Date(e.time)),
-      }))
+  const positioned = React.useMemo(
+    () =>
+      layoutDayEvents(
+        events
+          .filter((e) => e.time >= dayStart && e.time < dayEnd)
+          .map((e) => ({
+            item: e,
+            startMin:
+              moving?.id === e._id
+                ? moving.min
+                : minutesIntoDay(new Date(e.time)),
+          }))
+      ),
+    [events, dayStart, dayEnd, moving]
   )
 
   const markerTop = (startMin: number) =>
@@ -255,8 +268,9 @@ function DayColumn({
       style={{ height: gridHeight }}
       onClick={onClick}
       onMouseMove={(e) => {
+        if (moving !== null) return
         const rect = e.currentTarget.getBoundingClientRect()
-        const min = snapMinutes(((e.clientY - rect.top) / hourHeight) * 60)
+        const min = minutesAtY(e.clientY, rect.top, hourHeight)
         setDial((prev) => (prev === min ? prev : min))
       }}
       onMouseLeave={() => setDial(null)}
@@ -297,12 +311,7 @@ function DayColumn({
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault()
-                onMarkerMouseDown(
-                  e as unknown as React.MouseEvent,
-                  item,
-                  day,
-                  startMin
-                )
+                onEventClick(item)
               }
             }}
           >
@@ -315,7 +324,7 @@ function DayColumn({
               {format(dateAtMinutes(day, startMin), "h:mm")}
             </span>
             <span className="truncate text-xs font-medium">
-              {item.title || "(No title)"}
+              {item.title || UNTITLED_EVENT}
             </span>
           </div>
         )

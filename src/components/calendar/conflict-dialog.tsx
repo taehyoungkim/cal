@@ -1,6 +1,6 @@
 import { format } from "date-fns"
 import { TriangleAlert } from "lucide-react"
-import { DEFAULT_EVENT_COLOR } from "@/lib/calendar"
+import { UNTITLED_EVENT, categoryColor } from "@/lib/calendar"
 import type { CalendarEvent, Category } from "@/lib/calendar"
 import {
   AlertDialog,
@@ -39,14 +39,11 @@ export function ConflictList({
           )
           return (
             <li key={event._id} className="flex items-start gap-2.5 px-3 py-2">
-              <CategoryDot
-                color={category?.color ?? DEFAULT_EVENT_COLOR}
-                className="mt-[5px]"
-              />
+              <CategoryDot color={categoryColor(category)} className="mt-[5px]" />
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <div className="flex items-baseline justify-between gap-2">
                   <span className="truncate text-sm font-medium">
-                    {event.title || "(No title)"}
+                    {event.title || UNTITLED_EVENT}
                   </span>
                   <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                     {format(event.time, "h:mm a")}
@@ -73,14 +70,12 @@ export function ConflictList({
 
 /** Asks the user to confirm moving an event onto an occupied time slot. */
 export function ConflictDialog({
-  open,
   time,
   conflicts,
   categories,
   onCancel,
   onContinue,
 }: {
-  open: boolean
   time: number
   conflicts: Array<CalendarEvent>
   categories: Array<Category>
@@ -88,7 +83,7 @@ export function ConflictDialog({
   onContinue: () => void
 }) {
   return (
-    <AlertDialog open={open} onOpenChange={(value) => !value && onCancel()}>
+    <AlertDialog open onOpenChange={(value) => !value && onCancel()}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>Move to {format(time, "h:mm a")}?</AlertDialogTitle>
@@ -104,7 +99,7 @@ export function ConflictDialog({
           categories={categories}
         />
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={onCancel}>Cancel</AlertDialogCancel>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction onClick={onContinue}>
             Move anyway
           </AlertDialogAction>

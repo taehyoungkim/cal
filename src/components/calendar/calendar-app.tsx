@@ -5,8 +5,10 @@ import { CalendarDays, ChevronLeft, ChevronRight, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "../../../convex/_generated/api"
 import {
-  DEFAULT_EVENT_COLOR,
   VIEW_DAY_COUNT,
+  categoryColor,
+  conflictsAt,
+  dayEndMs,
   visibleDays,
 } from "@/lib/calendar"
 import type { CalendarEvent, CalendarView } from "@/lib/calendar"
@@ -41,13 +43,13 @@ export function CalendarApp() {
   const [dialog, setDialog] = React.useState<EventDialogState | null>(null)
   const [moveConfirm, setMoveConfirm] = React.useState<{
     event: GridEvent
-    time: Date
+    time: number
     conflicts: Array<CalendarEvent>
   } | null>(null)
 
   const days = React.useMemo(() => visibleDays(anchor, view), [anchor, view])
   const rangeStart = days[0].getTime()
-  const rangeEnd = addDays(days[days.length - 1], 1).getTime()
+  const rangeEnd = dayEndMs(days[days.length - 1])
 
   const events = useQuery(api.events.list, { rangeStart, rangeEnd })
   const categories = useQuery(api.categories.list) ?? []
@@ -55,14 +57,12 @@ export function CalendarApp() {
   const updateEvent = useMutation(api.events.update)
 
   const gridEvents: Array<GridEvent> = React.useMemo(() => {
-    const colorById = new Map(categories.map((c) => [c._id, c.color]))
+    const byId = new Map(categories.map((c) => [c._id, c]))
     return (events ?? [])
       .filter((e) => !e.categoryId || !hidden.has(e.categoryId))
       .map((e) => ({
         ...e,
-        color:
-          (e.categoryId ? colorById.get(e.categoryId) : undefined) ??
-          DEFAULT_EVENT_COLOR,
+        color: categoryColor(e.categoryId ? byId.get(e.categoryId) : undefined),
       }))
   }, [events, categories, hidden])
 
@@ -92,11 +92,9 @@ export function CalendarApp() {
 
   const handleEventMove = (event: GridEvent, time: Date) => {
     const t = time.getTime()
-    const clash = (events ?? []).filter(
-      (e) => e.time === t && e._id !== event._id
-    )
+    const clash = conflictsAt(events ?? [], t, event._id)
     if (clash.length > 0) {
-      setMoveConfirm({ event, time, conflicts: clash })
+      setMoveConfirm({ event, time: t, conflicts: clash })
     } else {
       void updateEvent({ id: event._id, time: t })
     }
@@ -236,15 +234,14 @@ export function CalendarApp() {
       />
       {moveConfirm && (
         <ConflictDialog
-          open
-          time={moveConfirm.time.getTime()}
+          time={moveConfirm.time}
           conflicts={moveConfirm.conflicts}
           categories={categories}
           onCancel={() => setMoveConfirm(null)}
           onContinue={() => {
             void updateEvent({
               id: moveConfirm.event._id,
-              time: moveConfirm.time.getTime(),
+              time: moveConfirm.time,
             })
             setMoveConfirm(null)
           }}

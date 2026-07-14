@@ -1,4 +1,4 @@
-import { addDays, startOfDay, startOfWeek } from "date-fns"
+import { addDays, format, startOfDay, startOfWeek } from "date-fns"
 import type { Doc } from "../../convex/_generated/dataModel"
 
 export type CalendarView = "day" | "3day" | "week"
@@ -33,9 +33,13 @@ export const CATEGORY_COLORS = [
   "#d8b4fe", // purple
 ]
 
-export const EVENT_COLORS = CATEGORY_COLORS
-
 export const DEFAULT_EVENT_COLOR = "#cbd5e1"
+
+export const UNTITLED_EVENT = "(No title)"
+
+export function categoryColor(category: Category | undefined): string {
+  return category?.color ?? DEFAULT_EVENT_COLOR
+}
 
 export function nextCategoryColor(existing: Array<Category>): string {
   const used = new Set(existing.map((c) => c.color))
@@ -70,6 +74,25 @@ export function minutesIntoDay(date: Date): number {
   return date.getHours() * 60 + date.getMinutes()
 }
 
+/** Formats minutes-into-day as a wall-clock label, independent of any date. */
+export function formatMinutes(minutes: number, fmt = "h:mm a"): string {
+  return format(new Date(2000, 0, 1, 0, minutes), fmt)
+}
+
+/** Exclusive end (epoch ms) of the day containing `day`. */
+export function dayEndMs(day: Date): number {
+  return addDays(startOfDay(day), 1).getTime()
+}
+
+/** Events already booked at exactly `time`, excluding the event being placed. */
+export function conflictsAt(
+  events: Array<CalendarEvent>,
+  time: number,
+  excludeId?: CalendarEvent["_id"]
+): Array<CalendarEvent> {
+  return events.filter((e) => e.time === time && e._id !== excludeId)
+}
+
 export type PositionedEvent<T> = {
   item: T
   /** minutes from midnight */
@@ -84,8 +107,7 @@ export type PositionedEvent<T> = {
  * time, so simultaneous events stay readable.
  */
 export function layoutDayEvents<T>(
-  items: Array<{ item: T; startMin: number }>,
-  spanMin: number = SNAP_MINUTES
+  items: Array<{ item: T; startMin: number }>
 ): Array<PositionedEvent<T>> {
   const sorted = [...items].sort((a, b) => a.startMin - b.startMin)
   const result: Array<PositionedEvent<T>> = []
@@ -101,9 +123,9 @@ export function layoutDayEvents<T>(
       let col = colEnds.findIndex((end) => end <= e.startMin)
       if (col === -1) {
         col = colEnds.length
-        colEnds.push(e.startMin + spanMin)
+        colEnds.push(e.startMin + SNAP_MINUTES)
       } else {
-        colEnds[col] = e.startMin + spanMin
+        colEnds[col] = e.startMin + SNAP_MINUTES
       }
       return { ...e, col, cols: 0 }
     })
@@ -115,9 +137,9 @@ export function layoutDayEvents<T>(
   for (const e of sorted) {
     if (e.startMin >= clusterEnd) {
       flush()
-      clusterEnd = e.startMin + spanMin
+      clusterEnd = e.startMin + SNAP_MINUTES
     } else {
-      clusterEnd = Math.max(clusterEnd, e.startMin + spanMin)
+      clusterEnd = Math.max(clusterEnd, e.startMin + SNAP_MINUTES)
     }
     cluster.push(e)
   }

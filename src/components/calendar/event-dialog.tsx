@@ -7,7 +7,11 @@ import type { Id } from "../../../convex/_generated/dataModel"
 import {
   DAY_MINUTES,
   SNAP_MINUTES,
+  UNTITLED_EVENT,
+  conflictsAt,
   dateAtMinutes,
+  dayEndMs,
+  formatMinutes,
   minutesIntoDay,
   snapMinutes,
 } from "@/lib/calendar"
@@ -50,10 +54,7 @@ const TIME_OPTIONS = Array.from(
     const minutes = i * SNAP_MINUTES
     return {
       value: String(minutes),
-      label: format(
-        new Date(2000, 0, 1, Math.floor(minutes / 60), minutes % 60),
-        "h:mm a"
-      ),
+      label: formatMinutes(minutes),
     }
   }
 )
@@ -123,15 +124,16 @@ function EventDialogBody({
 
   const sameDay = useQuery(api.events.list, {
     rangeStart: day.getTime(),
-    rangeEnd: day.getTime() + DAY_MINUTES * 60_000,
+    rangeEnd: dayEndMs(day),
   })
-  const conflicts = (sameDay ?? []).filter(
-    (e) =>
-      e.time === time && (state.mode !== "edit" || e._id !== state.event._id)
+  const conflicts = conflictsAt(
+    sameDay ?? [],
+    time,
+    state.mode === "edit" ? state.event._id : undefined
   )
 
   const doSave = async () => {
-    const payload = { title: title.trim() || "(No title)", time }
+    const payload = { title: title.trim() || UNTITLED_EVENT, time }
     if (state.mode === "create") {
       await createEvent({
         ...payload,
