@@ -131,13 +131,13 @@ export function TimeGrid({
         ref={headerRef}
         className="sticky top-0 z-40 flex border-b bg-background/95 backdrop-blur-sm"
       >
-        <div className="w-12 shrink-0 sm:w-14" />
+        <div className="w-14 shrink-0" />
         {days.map((day) => (
           <button
             key={day.getTime()}
             type="button"
             onClick={() => onDayClick(day)}
-            className="flex min-w-0 flex-1 flex-col items-center gap-0.5 border-l py-1.5 sm:py-2"
+            className="group flex min-w-0 flex-1 flex-col items-center gap-0.5 border-l py-1.5 sm:py-2"
           >
             <span
               className={cn(
@@ -149,7 +149,7 @@ export function TimeGrid({
             </span>
             <span
               className={cn(
-                "flex size-7 items-center justify-center rounded-full text-base tabular-nums transition-colors sm:size-9 sm:text-lg",
+                "flex size-7 items-center justify-center rounded-full text-base tabular-nums transition-[background-color,color,scale] duration-200 group-hover:scale-110 group-active:scale-[0.96] sm:size-9 sm:text-lg",
                 isToday(day)
                   ? "bg-primary font-medium text-primary-foreground"
                   : "text-foreground hover:bg-muted"
@@ -165,13 +165,13 @@ export function TimeGrid({
       <div className="relative flex">
         {/* Hour labels */}
         <div
-          className="relative w-12 shrink-0 sm:w-14"
+          className="relative w-14 shrink-0"
           style={{ height: gridHeight }}
         >
           {Array.from({ length: 23 }, (_, i) => i + 1).map((hour) => (
             <span
               key={hour}
-              className="absolute right-2 flex -translate-y-1/2 items-center gap-1 text-[10px] text-muted-foreground tabular-nums sm:text-[11px]"
+              className="absolute right-2 flex -translate-y-1/2 items-center gap-1 text-[10px] whitespace-nowrap text-muted-foreground tabular-nums sm:text-[11px]"
               style={{ top: hour * hourHeight }}
             >
               {formatMinutes(hour * 60, "h a")}
@@ -277,16 +277,16 @@ function DayColumn({
     >
       {dial !== null && moving === null && (
         <div
-          className="pointer-events-none absolute inset-x-0 z-20"
+          className="pointer-events-none absolute inset-x-0 z-20 transition-[top] duration-150 ease-out animate-in fade-in"
           style={{ top: (dial / 60) * hourHeight }}
         >
           <div className="border-t border-dashed border-primary/50" />
-          <span className="absolute top-0 left-1.5 -translate-y-1/2 rounded-full border border-primary/25 bg-background px-1.5 py-0.5 text-[10px] font-medium text-primary tabular-nums shadow-xs">
+          <span className="absolute top-0 left-1.5 origin-left -translate-y-1/2 rounded-full border border-primary/25 bg-background px-1.5 py-0.5 text-[10px] font-medium text-primary tabular-nums shadow-xs animate-in fade-in zoom-in-75 duration-200">
             {format(dateAtMinutes(day, dial), "h:mm a")}
           </span>
         </div>
       )}
-      {positioned.map(({ item, startMin, col, cols }) => {
+      {positioned.map(({ item, startMin, col, cols }, i) => {
         const isMoving = moving?.id === item._id
         return (
           <div
@@ -294,8 +294,9 @@ function DayColumn({
             role="button"
             tabIndex={0}
             className={cn(
-              "absolute z-10 flex cursor-grab items-center gap-1.5 overflow-hidden rounded-full border border-black/5 px-2 shadow-xs transition-shadow hover:shadow-sm dark:border-white/10",
-              isMoving && "z-30 cursor-grabbing shadow-md"
+              "absolute z-10 flex cursor-grab items-center gap-1.5 overflow-hidden rounded-full border border-black/5 px-2 shadow-xs dark:border-white/10",
+              "transition-[top,left,width,scale,box-shadow] duration-200 ease-out animate-in fade-in zoom-in-90 fill-mode-backwards hover:scale-[1.03] hover:shadow-md",
+              isMoving && "z-30 scale-[1.03] cursor-grabbing shadow-lg"
             )}
             style={{
               top: markerTop(startMin),
@@ -303,6 +304,7 @@ function DayColumn({
               left: `calc((100% - 10px) * ${col / cols} + 3px)`,
               width: `calc((100% - 10px) * ${1 / cols} - 3px)`,
               background: `color-mix(in oklab, ${item.color} 25%, var(--background))`,
+              animationDelay: `${Math.min(i * 25, 250)}ms`,
             }}
             onMouseDown={(e) => onMarkerMouseDown(e, item, day, startMin)}
             onClick={(e) => e.stopPropagation()}
@@ -332,7 +334,7 @@ function DayColumn({
 
       {pendingMin !== null && (
         <div
-          className="pointer-events-none absolute inset-x-1 z-20 flex items-center gap-1.5 rounded-full bg-primary px-2 text-primary-foreground shadow-md"
+          className="pointer-events-none absolute inset-x-1 z-20 flex items-center gap-1.5 rounded-full bg-primary px-2 text-primary-foreground shadow-md transition-[top] duration-200 ease-out animate-in fade-in zoom-in-95"
           style={{ top: markerTop(pendingMin), height: MARKER_HEIGHT }}
         >
           <span className="text-[10px] font-medium tabular-nums">
@@ -348,6 +350,7 @@ function DayColumn({
           style={{ top: (minutesIntoDay(now) / 60) * hourHeight }}
         >
           <div className="relative h-0.5 bg-red-500">
+            <div className="absolute -top-[3px] -left-1 size-2 animate-ping rounded-full bg-red-500 [animation-duration:3s]" />
             <div className="absolute -top-[3px] -left-1 size-2 rounded-full bg-red-500" />
           </div>
         </div>

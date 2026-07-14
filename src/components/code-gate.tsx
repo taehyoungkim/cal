@@ -1,5 +1,6 @@
 import * as React from "react"
 import { CalendarDays } from "lucide-react"
+import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Kbd } from "@/components/ui/kbd"
 
@@ -11,6 +12,7 @@ export function CodeGate({ children }: { children: React.ReactNode }) {
   const [unlocked, setUnlocked] = React.useState<boolean | null>(null)
   const [code, setCode] = React.useState("")
   const [error, setError] = React.useState(false)
+  const [attempts, setAttempts] = React.useState(0)
 
   React.useEffect(() => {
     setUnlocked(localStorage.getItem(STORAGE_KEY) === ACCESS_CODE)
@@ -26,6 +28,7 @@ export function CodeGate({ children }: { children: React.ReactNode }) {
       setUnlocked(true)
     } else {
       setError(true)
+      setAttempts((n) => n + 1)
     }
   }
 
@@ -43,19 +46,24 @@ export function CodeGate({ children }: { children: React.ReactNode }) {
           className="flex w-full animate-in flex-col items-center gap-3 duration-500 fade-in slide-in-from-bottom-2"
           style={{ animationDelay: "100ms", animationFillMode: "both" }}
         >
-          <Input
-            type="password"
-            autoFocus
-            placeholder="Access code"
-            aria-label="Access code"
-            aria-invalid={error || undefined}
-            value={code}
-            onChange={(e) => {
-              setCode(e.target.value)
-              setError(false)
-            }}
-            className="h-10 text-center"
-          />
+          <div
+            key={attempts}
+            className={cn("w-full", attempts > 0 && "animate-shake")}
+          >
+            <Input
+              type="password"
+              autoFocus
+              placeholder="Access code"
+              aria-label="Access code"
+              aria-invalid={error || undefined}
+              value={code}
+              onChange={(e) => {
+                setCode(e.target.value)
+                setError(false)
+              }}
+              className="h-10 text-center"
+            />
+          </div>
           <p aria-live="polite" className="h-4 text-xs">
             {error ? (
               <span className="text-destructive">Wrong code — try again</span>

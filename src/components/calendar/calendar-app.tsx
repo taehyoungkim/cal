@@ -17,6 +17,13 @@ import { Calendar } from "@/components/ui/calendar"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import { Toaster } from "@/components/ui/sonner"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { CategoryDot } from "./category-picker"
@@ -35,17 +42,33 @@ const VIEWS: Array<{ value: CalendarView; label: string }> = [
 export function CalendarApp() {
   const [anchor, setAnchor] = React.useState(() => startOfDay(new Date()))
   // Rendered client-side only (behind the code gate), so window is available.
-  const [view, setView] = React.useState<CalendarView>(() =>
-    window.innerWidth < 640 ? "day" : "week"
+  const [isNarrow, setIsNarrow] = React.useState(
+    () => window.innerWidth < 640
+  )
+  const [view, setView] = React.useState<CalendarView>(
+    isNarrow ? "day" : "week"
   )
   const [miniMonth, setMiniMonth] = React.useState<Date>(anchor)
   const [hidden, setHidden] = React.useState<Set<string>>(new Set())
+  const [sheetOpen, setSheetOpen] = React.useState(false)
   const [dialog, setDialog] = React.useState<EventDialogState | null>(null)
   const [moveConfirm, setMoveConfirm] = React.useState<{
     event: GridEvent
     time: number
     conflicts: Array<CalendarEvent>
   } | null>(null)
+
+  React.useEffect(() => {
+    const mq = window.matchMedia("(max-width: 639px)")
+    const onChange = () => setIsNarrow(mq.matches)
+    mq.addEventListener("change", onChange)
+    return () => mq.removeEventListener("change", onChange)
+  }, [])
+
+  // Week view doesn't fit a phone; fall back when the screen narrows.
+  React.useEffect(() => {
+    if (isNarrow && view === "week") setView("3day")
+  }, [isNarrow, view])
 
   const days = React.useMemo(() => visibleDays(anchor, view), [anchor, view])
   const rangeStart = days[0].getTime()
@@ -88,6 +111,8 @@ export function CalendarApp() {
     })
   }
 
+  const views = isNarrow ? VIEWS.filter((v) => v.value !== "week") : VIEWS
+
   const pendingTime = dialog?.mode === "create" ? dialog.time.getTime() : null
 
   const handleEventMove = (event: GridEvent, time: Date) => {
@@ -100,6 +125,70 @@ export function CalendarApp() {
     }
   }
 
+  // Shared by the desktop sidebar and the mobile sheet.
+  const sidebar = (
+    <>
+      <Calendar
+        mode="single"
+        selected={anchor}
+        onSelect={(date) => {
+          if (date) {
+            navigate(date)
+            setSheetOpen(false)
+          }
+        }}
+        month={miniMonth}
+        onMonthChange={setMiniMonth}
+        className="mx-auto p-0 [--cell-size:--spacing(8)]"
+      />
+      <Separator />
+      <div className="flex flex-col gap-1">
+        <span className="px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          Categories
+        </span>
+        {categories.length === 0 && (
+          <p className="px-1 py-2 text-sm text-pretty text-muted-foreground">
+            No categories yet. Create one while adding an event.
+          </p>
+        )}
+        {categories.map((category) => (
+          <div
+            key={category._id}
+            className="group flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors duration-150 hover:bg-muted"
+          >
+            <Label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1 font-normal">
+              <Checkbox
+                checked={!hidden.has(category._id)}
+                onCheckedChange={() => toggleCategory(category._id)}
+              />
+              <CategoryDot
+                color={category.color}
+                className="transition-transform duration-200 group-hover:scale-125"
+              />
+              <span className="truncate">{category.name}</span>
+            </Label>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Delete category ${category.name}`}
+              className="size-6 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive focus-visible:opacity-100 max-md:opacity-100"
+              onClick={async () => {
+                const deleted = await removeCategory({ id: category._id })
+                if (!deleted) {
+                  toast.warning(
+                    `“${category.name}” still has events. Reassign or delete them first.`
+                  )
+                }
+              }}
+            >
+              <Trash2 />
+            </Button>
+          </div>
+        ))}
+      </div>
+    </>
+  )
+
   return (
     <div className="flex h-svh flex-col overflow-hidden bg-background text-foreground">
       {/* Top bar */}
@@ -108,9 +197,33 @@ export function CalendarApp() {
           <CalendarDays className="size-5 text-primary" />
           <span className="text-lg font-medium">Calendar</span>
         </div>
+        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+          <SheetTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Open calendar menu"
+                className="md:hidden active:scale-[0.96]"
+              />
+            }
+          >
+            <CalendarDays className="size-5 text-primary" />
+          </SheetTrigger>
+          <SheetContent
+            side="left"
+            className="w-80 gap-3 overflow-y-auto p-4 pt-12"
+          >
+            <SheetHeader className="sr-only">
+              <SheetTitle>Calendar</SheetTitle>
+            </SheetHeader>
+            {sidebar}
+          </SheetContent>
+        </Sheet>
         <Button
           variant="outline"
           size="sm"
+          className="active:scale-[0.96]"
           onClick={() => navigate(new Date())}
         >
           Today
@@ -120,6 +233,7 @@ export function CalendarApp() {
             variant="ghost"
             size="icon-sm"
             aria-label="Previous"
+            className="active:scale-[0.96]"
             onClick={() => navigate(addDays(anchor, -step))}
           >
             <ChevronLeft />
@@ -128,6 +242,7 @@ export function CalendarApp() {
             variant="ghost"
             size="icon-sm"
             aria-label="Next"
+            className="active:scale-[0.96]"
             onClick={() => navigate(addDays(anchor, step))}
           >
             <ChevronRight />
@@ -142,7 +257,7 @@ export function CalendarApp() {
               if (next) setView(next)
             }}
           >
-            {VIEWS.map((v) => (
+            {views.map((v) => (
               <ToggleGroupItem
                 key={v.value}
                 value={v.value}
@@ -158,56 +273,7 @@ export function CalendarApp() {
       <div className="flex min-h-0 flex-1">
         {/* Sidebar */}
         <aside className="hidden w-64 shrink-0 flex-col gap-3 overflow-y-auto border-r p-3 md:flex">
-          <Calendar
-            mode="single"
-            selected={anchor}
-            onSelect={(date) => date && navigate(date)}
-            month={miniMonth}
-            onMonthChange={setMiniMonth}
-            className="mx-auto p-0 [--cell-size:--spacing(8)]"
-          />
-          <Separator />
-          <div className="flex flex-col gap-1">
-            <span className="px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Categories
-            </span>
-            {categories.length === 0 && (
-              <p className="px-1 py-2 text-sm text-pretty text-muted-foreground">
-                No categories yet. Create one while adding an event.
-              </p>
-            )}
-            {categories.map((category) => (
-              <div
-                key={category._id}
-                className="group flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted"
-              >
-                <Label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1 font-normal">
-                  <Checkbox
-                    checked={!hidden.has(category._id)}
-                    onCheckedChange={() => toggleCategory(category._id)}
-                  />
-                  <CategoryDot color={category.color} />
-                  <span className="truncate">{category.name}</span>
-                </Label>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`Delete category ${category.name}`}
-                  className="size-6 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive focus-visible:opacity-100"
-                  onClick={async () => {
-                    const deleted = await removeCategory({ id: category._id })
-                    if (!deleted) {
-                      toast.warning(
-                        `“${category.name}” still has events. Reassign or delete them first.`
-                      )
-                    }
-                  }}
-                >
-                  <Trash2 />
-                </Button>
-              </div>
-            ))}
-          </div>
+          {sidebar}
         </aside>
 
         {/* Main grid */}

@@ -1,6 +1,6 @@
 import * as React from "react"
 import { useMutation } from "convex/react"
-import { Check, ChevronsUpDown, Plus, Tag } from "lucide-react"
+import { ChevronsUpDown, Plus, Tag } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
 import type { Id } from "../../../convex/_generated/dataModel"
 import { nextCategoryColor } from "@/lib/calendar"
@@ -106,6 +106,7 @@ export function CategoryPicker({
             <CommandGroup>
               <CommandItem
                 value="__none__"
+                data-checked={value === null}
                 onSelect={() => {
                   onChange(null)
                   setOpen(false)
@@ -113,17 +114,12 @@ export function CategoryPicker({
               >
                 <Tag className="size-4 text-muted-foreground" />
                 No category
-                <Check
-                  className={cn(
-                    "ml-auto size-4",
-                    value === null ? "opacity-100" : "opacity-0"
-                  )}
-                />
               </CommandItem>
               {categories.map((category) => (
                 <CommandItem
                   key={category._id}
                   value={category.name}
+                  data-checked={value === category._id}
                   onSelect={() => {
                     onChange(category._id)
                     setOpen(false)
@@ -131,12 +127,6 @@ export function CategoryPicker({
                 >
                   <CategoryDot color={category.color} />
                   {category.name}
-                  <Check
-                    className={cn(
-                      "ml-auto size-4",
-                      value === category._id ? "opacity-100" : "opacity-0"
-                    )}
-                  />
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -146,7 +136,7 @@ export function CategoryPicker({
                   value={`__create__${query}`}
                   onSelect={handleCreate}
                 >
-                  <Plus className="size-4" />
+                  <Plus className="size-4 transition-transform duration-200 group-data-[selected=true]/command-item:rotate-90" />
                   Create “{query}”
                 </CommandItem>
               </CommandGroup>
