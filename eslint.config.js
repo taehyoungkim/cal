@@ -15,6 +15,15 @@ export default [
     },
   },
   {
-    ignores: ["eslint.config.js", ".prettierrc"],
+    // Stock shadcn components and Convex codegen are vendored — never lint them.
+    ignores: [
+      "eslint.config.js",
+      ".prettierrc",
+      "src/components/ui/**",
+      "convex/_generated/**",
+      ".output/**",
+      ".nitro/**",
+      ".tanstack/**",
+    ],
   },
 ]
