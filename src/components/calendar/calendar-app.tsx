@@ -1,22 +1,35 @@
 import * as React from "react"
 import { useMutation, useQuery } from "convex/react"
-import { addDays, format, isSameMonth, startOfDay } from "date-fns"
-import { CalendarDays, ChevronLeft, ChevronRight, Trash2 } from "lucide-react"
+import { Link } from "@tanstack/react-router"
+import { addDays, addMonths, format, isSameMonth, startOfDay } from "date-fns"
+import {
+  Building2,
+  CalendarDays,
+  CalendarRange,
+  ChevronLeft,
+  ChevronRight,
+  Settings2,
+  Tag,
+} from "lucide-react"
 import { toast } from "sonner"
 import { api } from "../../../convex/_generated/api"
 import {
   VIEW_DAY_COUNT,
-  categoriesById,
-  categoryColor,
+  byId,
+  categoryEmoji,
   conflictsAt,
   dayEndMs,
+  dayKey,
+  eventColor,
+  isAllDay,
+  nextColor,
+  parseDayKey,
   visibleDays,
 } from "@/lib/calendar"
 import type { CalendarEvent, CalendarView } from "@/lib/calendar"
-import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
+import { Button, buttonVariants } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
-import { Checkbox } from "@/components/ui/checkbox"
-import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
 import {
   Sheet,
@@ -27,18 +40,19 @@ import {
 } from "@/components/ui/sheet"
 import { Toaster } from "@/components/ui/sonner"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
-import { CategoryDot } from "./category-picker"
 import { ConflictDialog } from "./conflict-dialog"
 import { EventDialog } from "./event-dialog"
 import { EventSearch } from "./event-search"
 import type { EventDialogState } from "./event-dialog"
+import { MonthGrid, monthGridRange } from "./month-grid"
+import { LabelList } from "./sidebar-section"
 import { TimeGrid } from "./time-grid"
 import type { GridEvent } from "./time-grid"
 
 const VIEWS: Array<{ value: CalendarView; label: string }> = [
   { value: "day", label: "Day" },
-  { value: "3day", label: "3 Day" },
   { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
 ]
 
 export function CalendarApp() {
@@ -49,7 +63,15 @@ export function CalendarApp() {
     isNarrow ? "day" : "week"
   )
   const [miniMonth, setMiniMonth] = React.useState<Date>(anchor)
-  const [hidden, setHidden] = React.useState<Set<string>>(new Set())
+  const [hiddenCalendars, setHiddenCalendars] = React.useState<Set<string>>(
+    new Set()
+  )
+  const [hiddenCategories, setHiddenCategories] = React.useState<Set<string>>(
+    new Set()
+  )
+  const [hiddenDepartments, setHiddenDepartments] = React.useState<Set<string>>(
+    new Set()
+  )
   const [sheetOpen, setSheetOpen] = React.useState(false)
   const [dialog, setDialog] = React.useState<EventDialogState | null>(null)
   const [moveConfirm, setMoveConfirm] = React.useState<{
@@ -77,31 +99,77 @@ export function CalendarApp() {
 
   // Week view doesn't fit a phone; fall back when the screen narrows.
   React.useEffect(() => {
-    if (isNarrow && view === "week") setView("3day")
+    if (isNarrow && view === "week") setView("day")
   }, [isNarrow, view])
 
-  const days = React.useMemo(() => visibleDays(anchor, view), [anchor, view])
-  const rangeStart = days[0].getTime()
-  const rangeEnd = dayEndMs(days[days.length - 1])
+  // The visible span: grid days for day/week, whole week-rows for month.
+  const days = React.useMemo(
+    () => (view === "month" ? [] : visibleDays(anchor, view)),
+    [anchor, view]
+  )
+  const { rangeStartDay, rangeEndDay } = React.useMemo(() => {
+    if (view === "month") {
+      const { start, end } = monthGridRange(anchor)
+      return { rangeStartDay: start, rangeEndDay: startOfDay(end) }
+    }
+    return { rangeStartDay: days[0], rangeEndDay: days[days.length - 1] }
+  }, [view, anchor, days])
 
-  const events = useQuery(api.events.list, { rangeStart, rangeEnd })
+  const events = useQuery(api.events.list, {
+    rangeStart: rangeStartDay.getTime(),
+    rangeEnd: dayEndMs(rangeEndDay),
+    rangeStartDate: dayKey(rangeStartDay),
+    rangeEndDate: dayKey(rangeEndDay),
+  })
+  const calendars = useQuery(api.calendars.list) ?? []
   const categories = useQuery(api.categories.list) ?? []
+  const departments = useQuery(api.departments.list) ?? []
+  const createCalendar = useMutation(api.calendars.create)
+  const removeCalendar = useMutation(api.calendars.remove)
   const removeCategory = useMutation(api.categories.remove)
+  const updateCategory = useMutation(api.categories.update)
+  const createDepartment = useMutation(api.departments.create)
+  const removeDepartment = useMutation(api.departments.remove)
   const updateEvent = useMutation(api.events.update)
 
   const gridEvents: Array<GridEvent> = React.useMemo(() => {
-    const byId = categoriesById(categories)
+    const calendarsById = byId(calendars)
+    const categoriesById = byId(categories)
+    const departmentsById = byId(departments)
     return (events ?? [])
-      .filter((e) => !e.categoryId || !hidden.has(e.categoryId))
+      .filter(
+        (e) =>
+          !(e.calendarId && hiddenCalendars.has(e.calendarId)) &&
+          !(e.categoryId && hiddenCategories.has(e.categoryId)) &&
+          !(e.departmentId && hiddenDepartments.has(e.departmentId))
+      )
       .map((e) => {
-        const category = e.categoryId ? byId.get(e.categoryId) : undefined
+        const category = e.categoryId
+          ? categoriesById.get(e.categoryId)
+          : undefined
         return {
           ...e,
-          color: categoryColor(category),
+          color: eventColor(e, calendarsById),
+          calendarName: e.calendarId
+            ? calendarsById.get(e.calendarId)?.name
+            : undefined,
           categoryName: category?.name,
+          categoryEmoji: category ? categoryEmoji(category) : undefined,
+          // Falls back to the legacy free-text field on old events.
+          departmentName: e.departmentId
+            ? departmentsById.get(e.departmentId)?.name
+            : e.department,
         }
       })
-  }, [events, categories, hidden])
+  }, [
+    events,
+    calendars,
+    categories,
+    departments,
+    hiddenCalendars,
+    hiddenCategories,
+    hiddenDepartments,
+  ])
 
   const navigate = (date: Date) => {
     const day = startOfDay(date)
@@ -109,31 +177,54 @@ export function CalendarApp() {
     setMiniMonth(day)
   }
 
-  const step = VIEW_DAY_COUNT[view]
-  const first = days[0]
-  const last = days[days.length - 1]
-  const title = isSameMonth(first, last)
-    ? format(first, "MMMM yyyy")
-    : `${format(first, "MMM")} – ${format(last, "MMM yyyy")}`
+  const step = (direction: 1 | -1) =>
+    navigate(
+      view === "month"
+        ? addMonths(anchor, direction)
+        : addDays(anchor, direction * VIEW_DAY_COUNT[view])
+    )
 
-  const toggleCategory = (id: string) => {
-    setHidden((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+  const title = React.useMemo(() => {
+    if (view === "month") return format(anchor, "MMMM yyyy")
+    const first = days[0]
+    const last = days[days.length - 1]
+    return isSameMonth(first, last)
+      ? format(first, "MMMM yyyy")
+      : `${format(first, "MMM")} – ${format(last, "MMM yyyy")}`
+  }, [view, anchor, days])
+
+  const toggleIn =
+    (setter: React.Dispatch<React.SetStateAction<Set<string>>>) =>
+    (id: string) => {
+      setter((prev) => {
+        const next = new Set(prev)
+        if (next.has(id)) next.delete(id)
+        else next.add(id)
+        return next
+      })
+    }
+  const toggleCalendar = toggleIn(setHiddenCalendars)
+  const toggleCategory = toggleIn(setHiddenCategories)
+  const toggleDepartment = toggleIn(setHiddenDepartments)
 
   const views = isNarrow ? VIEWS.filter((v) => v.value !== "week") : VIEWS
 
-  const pendingTime = dialog?.mode === "create" ? dialog.time.getTime() : null
+  const pendingTime =
+    dialog?.mode === "create" && !dialog.allDay ? dialog.time.getTime() : null
 
   // Jump the calendar to a searched-for event and pulse it.
   const revealEvent = (event: CalendarEvent) => {
-    navigate(new Date(event.time))
-    if (event.categoryId && hidden.has(event.categoryId)) {
+    navigate(
+      isAllDay(event) ? parseDayKey(event.startDate) : new Date(event.time!)
+    )
+    if (event.calendarId && hiddenCalendars.has(event.calendarId)) {
+      toggleCalendar(event.calendarId)
+    }
+    if (event.categoryId && hiddenCategories.has(event.categoryId)) {
       toggleCategory(event.categoryId)
+    }
+    if (event.departmentId && hiddenDepartments.has(event.departmentId)) {
+      toggleDepartment(event.departmentId)
     }
     setHighlightId(event._id)
   }
@@ -146,6 +237,11 @@ export function CalendarApp() {
     } else {
       void updateEvent({ id: event._id, time: t })
     }
+  }
+
+  const openDay = (day: Date) => {
+    navigate(day)
+    setView("day")
   }
 
   // Shared by the desktop sidebar and the mobile sheet.
@@ -165,50 +261,78 @@ export function CalendarApp() {
         className="mx-auto p-0 [--cell-size:--spacing(8)]"
       />
       <Separator />
-      <div className="flex flex-col gap-1">
-        <span className="px-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          Categories
-        </span>
-        {categories.length === 0 && (
-          <p className="px-1 py-2 text-sm text-pretty text-muted-foreground">
-            No categories yet. Create one while adding an event.
-          </p>
+      <LabelList
+        title="Calendars"
+        items={calendars}
+        hidden={hiddenCalendars}
+        icon={CalendarRange}
+        emptyHint="No calendars yet. Add one per artist, team, or project."
+        onToggle={toggleCalendar}
+        onDelete={async (calendar) => {
+          const deleted = await removeCalendar({ id: calendar._id })
+          if (!deleted) {
+            toast.warning(
+              `“${calendar.name}” still has events. Reassign or delete them first.`
+            )
+          }
+        }}
+        onCreate={async (name) => {
+          await createCalendar({ name, color: nextColor(calendars) })
+        }}
+        createLabel="New calendar"
+      />
+      <Separator />
+      <LabelList
+        title="Categories"
+        items={categories.map((c) => ({ ...c, emoji: categoryEmoji(c) }))}
+        hidden={hiddenCategories}
+        icon={Tag}
+        emptyHint="No categories yet. Create one while adding an event."
+        onToggle={toggleCategory}
+        onDelete={async (category) => {
+          const deleted = await removeCategory({ id: category._id })
+          if (!deleted) {
+            toast.warning(
+              `“${category.name}” still has events. Reassign or delete them first.`
+            )
+          }
+        }}
+        onEmojiChange={(category, emoji) => {
+          void updateCategory({ id: category._id, emoji })
+        }}
+      />
+      <Separator />
+      <LabelList
+        title="Departments"
+        items={departments}
+        hidden={hiddenDepartments}
+        icon={Building2}
+        emptyHint="No departments yet. Add the teams in charge."
+        onToggle={toggleDepartment}
+        onDelete={async (department) => {
+          const deleted = await removeDepartment({ id: department._id })
+          if (!deleted) {
+            toast.warning(
+              `“${department.name}” still has events. Reassign or delete them first.`
+            )
+          }
+        }}
+        onCreate={async (name) => {
+          await createDepartment({ name })
+        }}
+        createLabel="New department"
+      />
+      <Separator />
+      <Link
+        to="/manage"
+        className={cn(
+          buttonVariants({ variant: "ghost", size: "sm" }),
+          "justify-start gap-2 font-normal text-muted-foreground hover:text-foreground"
         )}
-        {categories.map((category) => (
-          <div
-            key={category._id}
-            className="group flex items-center gap-2 rounded-md px-1.5 py-1 transition-colors duration-150 hover:bg-muted"
-          >
-            <Label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 py-1 font-normal">
-              <Checkbox
-                checked={!hidden.has(category._id)}
-                onCheckedChange={() => toggleCategory(category._id)}
-              />
-              <CategoryDot
-                color={category.color}
-                className="transition-transform duration-200 group-hover:scale-125"
-              />
-              <span className="truncate">{category.name}</span>
-            </Label>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label={`Delete category ${category.name}`}
-              className="size-6 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive focus-visible:opacity-100 max-md:opacity-100"
-              onClick={async () => {
-                const deleted = await removeCategory({ id: category._id })
-                if (!deleted) {
-                  toast.warning(
-                    `“${category.name}” still has events. Reassign or delete them first.`
-                  )
-                }
-              }}
-            >
-              <Trash2 />
-            </Button>
-          </div>
-        ))}
-      </div>
+      >
+        <Settings2 className="size-4" />
+        Manage
+      </Link>
     </>
   )
 
@@ -257,7 +381,7 @@ export function CalendarApp() {
             size="icon-sm"
             aria-label="Previous"
             className="active:scale-[0.96]"
-            onClick={() => navigate(addDays(anchor, -step))}
+            onClick={() => step(-1)}
           >
             <ChevronLeft />
           </Button>
@@ -266,14 +390,14 @@ export function CalendarApp() {
             size="icon-sm"
             aria-label="Next"
             className="active:scale-[0.96]"
-            onClick={() => navigate(addDays(anchor, step))}
+            onClick={() => step(1)}
           >
             <ChevronRight />
           </Button>
         </div>
         <h1 className="min-w-0 truncate text-base sm:text-lg">{title}</h1>
         <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
-          <EventSearch categories={categories} onPick={revealEvent} />
+          <EventSearch calendars={calendars} onPick={revealEvent} />
           <ToggleGroup
             value={[view]}
             onValueChange={(value: Array<unknown>) => {
@@ -302,32 +426,50 @@ export function CalendarApp() {
 
         {/* Main grid */}
         <main className="flex min-w-0 flex-1 flex-col">
-          <TimeGrid
-            days={days}
-            events={gridEvents}
-            pendingTime={pendingTime}
-            highlightId={highlightId}
-            onSlotClick={(time) => setDialog({ mode: "create", time })}
-            onEventClick={(event) => setDialog({ mode: "edit", event })}
-            onEventMove={handleEventMove}
-            onDayClick={(day) => {
-              navigate(day)
-              setView("day")
-            }}
-          />
+          {view === "month" ? (
+            <MonthGrid
+              anchor={anchor}
+              events={gridEvents}
+              highlightId={highlightId}
+              onDayClick={openDay}
+              onDayCreate={(day) =>
+                setDialog({ mode: "create", time: day, allDay: true })
+              }
+              onEventClick={(event) => setDialog({ mode: "edit", event })}
+            />
+          ) : (
+            <TimeGrid
+              days={days}
+              events={gridEvents}
+              pendingTime={pendingTime}
+              highlightId={highlightId}
+              onSlotClick={(time) => setDialog({ mode: "create", time })}
+              onAllDayClick={(day) =>
+                setDialog({ mode: "create", time: day, allDay: true })
+              }
+              onEventClick={(event) => setDialog({ mode: "edit", event })}
+              onEventMove={handleEventMove}
+              onDayClick={openDay}
+            />
+          )}
         </main>
       </div>
 
       <EventDialog
         state={dialog}
+        calendars={calendars}
         categories={categories}
+        departments={departments}
         onClose={() => setDialog(null)}
       />
       {moveConfirm && (
         <ConflictDialog
           time={moveConfirm.time}
           conflicts={moveConfirm.conflicts}
+          calendars={calendars}
           categories={categories}
+          departments={departments}
+          calendarId={moveConfirm.event.calendarId ?? null}
           onCancel={() => setMoveConfirm(null)}
           onContinue={() => {
             void updateEvent({

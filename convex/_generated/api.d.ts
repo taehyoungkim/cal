@@ -9,7 +9,9 @@
  */
 
 import type * as access from "../access.js";
+import type * as calendars from "../calendars.js";
 import type * as categories from "../categories.js";
+import type * as departments from "../departments.js";
 import type * as events from "../events.js";
 
 import type {
@@ -20,7 +22,9 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   access: typeof access;
+  calendars: typeof calendars;
   categories: typeof categories;
+  departments: typeof departments;
   events: typeof events;
 }>;
 

@@ -3,8 +3,17 @@ import { useQuery } from "convex/react"
 import { format, isThisYear, isToday, isTomorrow, isYesterday } from "date-fns"
 import { Search } from "lucide-react"
 import { api } from "../../../convex/_generated/api"
-import { UNTITLED_EVENT, categoriesById, categoryColor } from "@/lib/calendar"
-import type { CalendarEvent, Category } from "@/lib/calendar"
+import {
+  UNTITLED_EVENT,
+  byId,
+  dayKey,
+  eventColor,
+  eventStartMs,
+  formatDaySpan,
+  isAllDay,
+  parseDayKey,
+} from "@/lib/calendar"
+import type { CalendarDoc, CalendarEvent } from "@/lib/calendar"
 import { Button } from "@/components/ui/button"
 import {
   Command,
@@ -17,7 +26,7 @@ import {
   CommandShortcut,
 } from "@/components/ui/command"
 import { Kbd } from "@/components/ui/kbd"
-import { CategoryDot } from "./category-picker"
+import { ColorDot } from "./label-picker"
 
 const DEBOUNCE_MS = 150
 
@@ -30,16 +39,25 @@ function useDebounced<T>(value: T, ms: number): T {
   return debounced
 }
 
-function eventDateLabel(time: number): string {
-  const date = new Date(time)
-  const day = isToday(date)
+function dayLabel(date: Date): string {
+  return isToday(date)
     ? "Today"
     : isTomorrow(date)
       ? "Tomorrow"
       : isYesterday(date)
         ? "Yesterday"
         : format(date, isThisYear(date) ? "EEE, MMM d" : "MMM d, yyyy")
-  return `${day} · ${format(date, "h:mm a")}`
+}
+
+function eventDateLabel(event: CalendarEvent): string {
+  if (isAllDay(event)) {
+    const start = parseDayKey(event.startDate)
+    return event.startDate === event.endDate
+      ? `${dayLabel(start)} · All day`
+      : formatDaySpan(event)
+  }
+  const date = new Date(event.time!)
+  return `${dayLabel(date)} · ${format(date, "h:mm a")}`
 }
 
 function escapeRegExp(text: string): string {
@@ -68,10 +86,10 @@ function MatchedTitle({ text, query }: { text: string; query: string }) {
 }
 
 export function EventSearch({
-  categories,
+  calendars,
   onPick,
 }: {
-  categories: Array<Category>
+  calendars: Array<CalendarDoc>
   onPick: (event: CalendarEvent) => void
 }) {
   const [open, setOpen] = React.useState(false)
@@ -89,9 +107,20 @@ export function EventSearch({
     api.events.search,
     open && debounced !== "" ? { query: debounced } : "skip"
   )
-  const upcoming = useQuery(
+  const upcomingRaw = useQuery(
     api.events.upcoming,
-    open ? { after: openedAt } : "skip"
+    open ? { after: openedAt, afterDate: dayKey(new Date(openedAt)) } : "skip"
+  )
+  // The server returns candidates from both shapes; order them locally
+  // (all-day dates only become moments in the client's timezone).
+  const upcoming = React.useMemo(
+    () =>
+      upcomingRaw === undefined
+        ? undefined
+        : [...upcomingRaw]
+            .sort((a, b) => eventStartMs(a) - eventStartMs(b))
+            .slice(0, 5),
+    [upcomingRaw]
   )
 
   // Hold on to the last loaded results so the list doesn't flicker to
@@ -101,10 +130,7 @@ export function EventSearch({
   const items = searching ? (results ?? lastResults.current) : (upcoming ?? [])
   const loaded = searching ? results !== undefined : upcoming !== undefined
 
-  const colorById = React.useMemo(
-    () => categoriesById(categories),
-    [categories]
-  )
+  const calendarsById = React.useMemo(() => byId(calendars), [calendars])
 
   const openDialog = React.useCallback(() => {
     setQuery("")
@@ -177,13 +203,7 @@ export function EventSearch({
                     value={event._id}
                     onSelect={() => pick(event)}
                   >
-                    <CategoryDot
-                      color={categoryColor(
-                        event.categoryId
-                          ? colorById.get(event.categoryId)
-                          : undefined
-                      )}
-                    />
+                    <ColorDot color={eventColor(event, calendarsById)} />
                     <span className="min-w-0 flex-1 truncate">
                       {event.title ? (
                         <MatchedTitle
@@ -201,7 +221,7 @@ export function EventSearch({
                       )}
                     </span>
                     <CommandShortcut className="shrink-0 pl-3 tracking-normal whitespace-nowrap tabular-nums">
-                      {eventDateLabel(event.time)}
+                      {eventDateLabel(event)}
                     </CommandShortcut>
                   </CommandItem>
                 ))}

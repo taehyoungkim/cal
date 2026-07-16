@@ -7,20 +7,26 @@ import {
   dateAtMinutes,
   dayEndMs,
   formatMinutes,
+  isAllDay,
+  layoutAllDayBars,
   layoutDayEvents,
   minutesIntoDay,
   snapMinutes,
 } from "@/lib/calendar"
-import type { CalendarEvent } from "@/lib/calendar"
+import type { AllDayEvent, CalendarEvent } from "@/lib/calendar"
 import { cn } from "@/lib/utils"
 import { EventPeek } from "./event-peek"
 
 export type GridEvent = CalendarEvent & {
   color: string
+  calendarName?: string
   categoryName?: string
+  categoryEmoji?: string
+  departmentName?: string
 }
 
 const MARKER_HEIGHT = 24
+const ALL_DAY_LANE_HEIGHT = 26
 
 const minutesAtY = (clientY: number, rectTop: number, hourHeight: number) =>
   snapMinutes(((clientY - rectTop) / hourHeight) * 60)
@@ -31,6 +37,7 @@ export function TimeGrid({
   pendingTime,
   highlightId,
   onSlotClick,
+  onAllDayClick,
   onEventClick,
   onEventMove,
   onDayClick,
@@ -42,6 +49,8 @@ export function TimeGrid({
   /** event to scroll into view and pulse (e.g. picked from search) */
   highlightId: string | null
   onSlotClick: (time: Date) => void
+  /** click in the all-day row — create an all-day event on that day */
+  onAllDayClick: (day: Date) => void
   onEventClick: (event: GridEvent) => void
   onEventMove: (event: GridEvent, time: Date) => void
   onDayClick: (day: Date) => void
@@ -55,6 +64,15 @@ export function TimeGrid({
     id: string
     min: number
   } | null>(null)
+
+  const timed = React.useMemo(
+    () => events.filter((e) => !isAllDay(e)),
+    [events]
+  )
+  const allDay = React.useMemo(
+    () => events.filter((e): e is GridEvent & AllDayEvent => isAllDay(e)),
+    [events]
+  )
 
   // Stretch hours so a tall viewport is filled edge to edge; short
   // viewports keep a readable minimum and scroll instead.
@@ -83,13 +101,13 @@ export function TimeGrid({
   React.useEffect(() => {
     const el = scrollRef.current
     if (!highlightId || !el) return
-    const target = events.find((e) => e._id === highlightId)
+    const target = timed.find((e) => e._id === highlightId)
     if (!target) return
     const top =
-      (minutesIntoDay(new Date(target.time)) / 60) * hourHeight -
+      (minutesIntoDay(new Date(target.time!)) / 60) * hourHeight -
       el.clientHeight / 2
     el.scrollTo({ top: Math.max(0, top), behavior: "smooth" })
-  }, [highlightId, events, hourHeight])
+  }, [highlightId, timed, hourHeight])
 
   const gridHeight = 24 * hourHeight
 
@@ -145,41 +163,140 @@ export function TimeGrid({
     window.addEventListener("mouseup", onUp)
   }
 
+  const { bars, laneCount } = React.useMemo(
+    () => layoutAllDayBars(allDay, days),
+    [allDay, days]
+  )
+  const allDayHeight = Math.max(laneCount, 1) * ALL_DAY_LANE_HEIGHT + 6
+
   return (
     <div ref={scrollRef} className="flex-1 overflow-y-auto select-none">
-      {/* Day headers */}
+      {/* Day headers + all-day shelf */}
       <div
         ref={headerRef}
-        className="sticky top-0 z-40 flex border-b bg-background/95 backdrop-blur-sm"
+        className="sticky top-0 z-40 border-b bg-background/95 backdrop-blur-sm"
       >
-        <div className="w-14 shrink-0" />
-        {days.map((day) => (
-          <button
-            key={day.getTime()}
-            type="button"
-            onClick={() => onDayClick(day)}
-            className="group flex min-w-0 flex-1 flex-col items-center gap-0.5 border-l py-1.5 sm:py-2"
-          >
-            <span
-              className={cn(
-                "text-[10px] font-medium tracking-wide uppercase sm:text-[11px]",
-                isToday(day) ? "text-primary" : "text-muted-foreground"
-              )}
+        <div className="flex">
+          <div className="w-14 shrink-0" />
+          {days.map((day) => (
+            <button
+              key={day.getTime()}
+              type="button"
+              onClick={() => onDayClick(day)}
+              className="group flex min-w-0 flex-1 flex-col items-center gap-0.5 border-l py-1.5 sm:py-2"
             >
-              {format(day, "EEE")}
+              <span
+                className={cn(
+                  "text-[10px] font-medium tracking-wide uppercase sm:text-[11px]",
+                  isToday(day) ? "text-primary" : "text-muted-foreground"
+                )}
+              >
+                {format(day, "EEE")}
+              </span>
+              <span
+                className={cn(
+                  "flex size-7 items-center justify-center rounded-full text-base tabular-nums transition-[background-color,color,scale] duration-200 group-hover:scale-110 group-active:scale-[0.96] sm:size-9 sm:text-lg",
+                  isToday(day)
+                    ? "bg-primary font-medium text-primary-foreground"
+                    : "text-foreground hover:bg-muted"
+                )}
+              >
+                {format(day, "d")}
+              </span>
+            </button>
+          ))}
+        </div>
+
+        {/* All-day events sit above the hour grid, spanning their days. */}
+        <div className="flex border-t border-border/60">
+          <div className="flex w-14 shrink-0 items-start justify-end pt-1.5 pr-2">
+            <span className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
+              all-day
             </span>
-            <span
-              className={cn(
-                "flex size-7 items-center justify-center rounded-full text-base tabular-nums transition-[background-color,color,scale] duration-200 group-hover:scale-110 group-active:scale-[0.96] sm:size-9 sm:text-lg",
-                isToday(day)
-                  ? "bg-primary font-medium text-primary-foreground"
-                  : "text-foreground hover:bg-muted"
-              )}
-            >
-              {format(day, "d")}
-            </span>
-          </button>
-        ))}
+          </div>
+          <div className="relative flex-1" style={{ height: allDayHeight }}>
+            <div className="absolute inset-0 flex">
+              {days.map((day) => (
+                <div
+                  key={day.getTime()}
+                  className="min-w-0 flex-1 cursor-pointer border-l border-border/60 transition-colors hover:bg-muted/40"
+                  onClick={() => onAllDayClick(day)}
+                />
+              ))}
+            </div>
+            {bars.map(
+              ({ item, startCol, span, lane, startsBefore, endsAfter }) => (
+                <React.Fragment key={item._id}>
+                  <EventPeek
+                    event={item}
+                    conflicts={[]}
+                    disabled={moving !== null}
+                  >
+                    <button
+                      type="button"
+                      className={cn(
+                        "absolute z-10 flex animate-in items-center gap-1.5 overflow-hidden border border-black/5 px-2 text-left shadow-xs transition-[scale,box-shadow] duration-200 fill-mode-backwards zoom-in-95 fade-in hover:scale-[1.01] hover:shadow-md dark:border-white/10",
+                        startsBefore ? "rounded-l-sm" : "rounded-l-full",
+                        endsAfter ? "rounded-r-sm" : "rounded-r-full"
+                      )}
+                      style={{
+                        top: 3 + lane * ALL_DAY_LANE_HEIGHT,
+                        height: ALL_DAY_LANE_HEIGHT - 4,
+                        left: `calc(${(startCol / days.length) * 100}% + 3px)`,
+                        width: `calc(${(span / days.length) * 100}% - 6px)`,
+                        background: `color-mix(in oklab, ${item.color} 30%, var(--background))`,
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onEventClick(item)
+                      }}
+                    >
+                      {startsBefore && (
+                        <span
+                          aria-hidden
+                          className="text-[10px] text-muted-foreground"
+                        >
+                          ‹
+                        </span>
+                      )}
+                      {item.categoryEmoji && (
+                        <span
+                          aria-hidden
+                          className="shrink-0 text-[11px] leading-none"
+                        >
+                          {item.categoryEmoji}
+                        </span>
+                      )}
+                      <span className="truncate text-xs font-medium">
+                        {item.title || UNTITLED_EVENT}
+                      </span>
+                      {endsAfter && (
+                        <span
+                          aria-hidden
+                          className="ml-auto text-[10px] text-muted-foreground"
+                        >
+                          ›
+                        </span>
+                      )}
+                    </button>
+                  </EventPeek>
+                  {highlightId === item._id && (
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute z-30 rounded-full motion-safe:animate-spotlight motion-reduce:ring-2 motion-reduce:ring-primary"
+                      style={{
+                        top: 3 + lane * ALL_DAY_LANE_HEIGHT,
+                        height: ALL_DAY_LANE_HEIGHT - 4,
+                        left: `calc(${(startCol / days.length) * 100}% + 3px)`,
+                        width: `calc(${(span / days.length) * 100}% - 6px)`,
+                      }}
+                    />
+                  )}
+                </React.Fragment>
+              )
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Grid body */}
@@ -203,7 +320,7 @@ export function TimeGrid({
           <DayColumn
             key={day.getTime()}
             day={day}
-            events={events}
+            events={timed}
             moving={moving}
             pendingTime={pendingTime}
             highlightId={highlightId}
@@ -258,18 +375,18 @@ function DayColumn({
 
   const positioned = React.useMemo(() => {
     const dayEvents = events.filter(
-      (e) => e.time >= dayStart && e.time < dayEnd
+      (e) => e.time! >= dayStart && e.time! < dayEnd
     )
     return layoutDayEvents(
       dayEvents.map((e) => ({
         item: e,
         startMin:
-          moving?.id === e._id ? moving.min : minutesIntoDay(new Date(e.time)),
+          moving?.id === e._id ? moving.min : minutesIntoDay(new Date(e.time!)),
       }))
       // Same-time events always share a day, so dayEvents covers them.
     ).map((p) => ({
       ...p,
-      conflicts: conflictsAt(dayEvents, p.item.time, p.item._id),
+      conflicts: conflictsAt(dayEvents, p.item.time!, p.item._id),
     }))
   }, [events, dayStart, dayEnd, moving])
 
@@ -346,11 +463,20 @@ function DayColumn({
                   }
                 }}
               >
-                <span
-                  aria-hidden
-                  className="size-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: item.color }}
-                />
+                {item.categoryEmoji ? (
+                  <span
+                    aria-hidden
+                    className="shrink-0 text-[11px] leading-none"
+                  >
+                    {item.categoryEmoji}
+                  </span>
+                ) : (
+                  <span
+                    aria-hidden
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: item.color }}
+                  />
+                )}
                 <span className="shrink-0 text-[10px] font-medium text-muted-foreground tabular-nums">
                   {format(dateAtMinutes(day, startMin), "h:mm")}
                 </span>

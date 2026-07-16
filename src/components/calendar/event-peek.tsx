@@ -1,12 +1,14 @@
 import * as React from "react"
 import { format } from "date-fns"
-import { UNTITLED_EVENT } from "@/lib/calendar"
+import { Building2, TriangleAlert } from "lucide-react"
+import { UNTITLED_EVENT, formatDaySpan, isAllDay } from "@/lib/calendar"
+import { cn } from "@/lib/utils"
 import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
 } from "@/components/ui/hover-card"
-import { CategoryDot } from "./category-picker"
+import { ColorDot } from "./label-picker"
 import type { GridEvent } from "./time-grid"
 
 /**
@@ -33,6 +35,10 @@ export function EventPeek({
     if (disabled) setOpen(false)
   }, [disabled])
 
+  const when = isAllDay(event)
+    ? `${formatDaySpan(event)} · All day`
+    : format(new Date(event.time!), "EEEE, MMM d · h:mm a")
+
   return (
     <HoverCard open={open} onOpenChange={(next) => setOpen(next && !disabled)}>
       <HoverCardTrigger
@@ -51,16 +57,37 @@ export function EventPeek({
             <p className="text-sm font-semibold text-balance">
               {event.title || UNTITLED_EVENT}
             </p>
-            <p className="text-xs text-muted-foreground tabular-nums">
-              {format(new Date(event.time), "EEEE, MMM d · h:mm a")}
-            </p>
+            <p className="text-xs text-muted-foreground tabular-nums">{when}</p>
           </div>
 
-          {event.categoryName && (
+          {(event.calendarName || event.categoryName) && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {event.calendarName && (
+                <div className="flex items-center gap-1.5">
+                  <ColorDot color={event.color} className="size-2" />
+                  <span className="text-xs text-muted-foreground">
+                    {event.calendarName}
+                  </span>
+                </div>
+              )}
+              {event.categoryName && (
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  {event.categoryEmoji && (
+                    <span aria-hidden className="mr-1">
+                      {event.categoryEmoji}
+                    </span>
+                  )}
+                  {event.categoryName}
+                </span>
+              )}
+            </div>
+          )}
+
+          {event.departmentName && (
             <div className="flex items-center gap-1.5">
-              <CategoryDot color={event.color} className="size-2" />
+              <Building2 className="size-3 text-muted-foreground" />
               <span className="text-xs text-muted-foreground">
-                {event.categoryName}
+                {event.departmentName}
               </span>
             </div>
           )}
@@ -76,17 +103,34 @@ export function EventPeek({
               <span className="text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
                 Also at this time
               </span>
-              {conflicts.map((conflict) => (
-                <div
-                  key={conflict._id}
-                  className="flex items-center gap-1.5 text-xs"
-                >
-                  <CategoryDot color={conflict.color} className="size-2" />
-                  <span className="truncate">
-                    {conflict.title || UNTITLED_EVENT}
-                  </span>
-                </div>
-              ))}
+              {conflicts.map((conflict) => {
+                const crossCalendar = conflict.calendarId !== event.calendarId
+                return (
+                  <div
+                    key={conflict._id}
+                    className="flex items-center gap-1.5 text-xs"
+                  >
+                    {crossCalendar ? (
+                      <TriangleAlert className="size-3 shrink-0 text-amber-600 dark:text-amber-400" />
+                    ) : (
+                      <ColorDot color={conflict.color} className="size-2" />
+                    )}
+                    <span className="truncate">
+                      {conflict.title || UNTITLED_EVENT}
+                    </span>
+                    {crossCalendar && conflict.calendarName && (
+                      <span
+                        className={cn(
+                          "ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium",
+                          "bg-amber-500/15 text-amber-700 dark:text-amber-300"
+                        )}
+                      >
+                        {conflict.calendarName}
+                      </span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
