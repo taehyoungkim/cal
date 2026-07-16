@@ -12,8 +12,7 @@ import {
 } from "date-fns"
 import {
   UNTITLED_EVENT,
-  conflictsAt,
-  dayEndMs,
+  dayKey,
   isAllDay,
   layoutAllDayBars,
   minutesIntoDay,
@@ -56,10 +55,22 @@ export function MonthGrid({
   const { start, end } = monthGridRange(anchor)
   const weeks = eachWeekOfInterval({ start, end }, { weekStartsOn: 0 })
 
-  const timed = React.useMemo(
-    () => events.filter((e) => !isAllDay(e)).sort((a, b) => a.time! - b.time!),
-    [events]
-  )
+  // One pass buckets the month's timed events per day, so cells don't
+  // each re-filter the whole list.
+  const timedByDay = React.useMemo(() => {
+    const buckets = new Map<string, Array<GridEvent>>()
+    for (const event of events) {
+      if (isAllDay(event)) continue
+      const key = dayKey(new Date(event.time!))
+      const bucket = buckets.get(key)
+      if (bucket) bucket.push(event)
+      else buckets.set(key, [event])
+    }
+    for (const bucket of buckets.values()) {
+      bucket.sort((a, b) => a.time! - b.time!)
+    }
+    return buckets
+  }, [events])
   const allDay = React.useMemo(
     () => events.filter((e): e is GridEvent & AllDayEvent => isAllDay(e)),
     [events]
@@ -83,7 +94,7 @@ export function MonthGrid({
             key={weekStart.getTime()}
             weekStart={weekStart}
             anchor={anchor}
-            timed={timed}
+            timedByDay={timedByDay}
             allDay={allDay}
             highlightId={highlightId}
             onDayClick={onDayClick}
@@ -99,7 +110,7 @@ export function MonthGrid({
 function WeekRow({
   weekStart,
   anchor,
-  timed,
+  timedByDay,
   allDay,
   highlightId,
   onDayClick,
@@ -108,7 +119,7 @@ function WeekRow({
 }: {
   weekStart: Date
   anchor: Date
-  timed: Array<GridEvent>
+  timedByDay: Map<string, Array<GridEvent>>
   allDay: Array<GridEvent & AllDayEvent>
   highlightId: string | null
   onDayClick: (day: Date) => void
@@ -128,9 +139,7 @@ function WeekRow({
   return (
     <div className="relative grid min-h-24 grid-cols-7 border-b border-border/60">
       {days.map((day) => {
-        const dayEvents = timed.filter(
-          (e) => e.time! >= day.getTime() && e.time! < dayEndMs(day)
-        )
+        const dayEvents = timedByDay.get(dayKey(day)) ?? []
         const visible = dayEvents.slice(0, chipBudget)
         const overflow = dayEvents.length - visible.length
         const outside = !isSameMonth(day, anchor)
@@ -175,7 +184,7 @@ function WeekRow({
               <EventPeek
                 key={event._id}
                 event={event}
-                conflicts={conflictsAt(dayEvents, event.time!, event._id)}
+                conflicts={event.conflicts ?? []}
                 disabled={false}
               >
                 <button

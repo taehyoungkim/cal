@@ -12,7 +12,12 @@ export default defineSchema({
   calendars: defineTable({
     name: v.string(),
     color: v.string(),
-  }).index("by_name", ["name"]),
+    // URL-friendly unique handle derived from the name ("/calendar/<slug>").
+    // Optional only for rows that predate slugs; new writes always set it.
+    slug: v.optional(v.string()),
+  })
+    .index("by_name", ["name"])
+    .index("by_slug", ["slug"]),
   // Event-type tags, badged with an emoji.
   categories: defineTable({
     name: v.string(),

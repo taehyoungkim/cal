@@ -1,8 +1,7 @@
 import * as React from "react"
 import { format } from "date-fns"
-import { Building2, TriangleAlert } from "lucide-react"
+import { Building2, ChevronRight } from "lucide-react"
 import { UNTITLED_EVENT, formatDaySpan, isAllDay } from "@/lib/calendar"
-import { cn } from "@/lib/utils"
 import {
   HoverCard,
   HoverCardContent,
@@ -20,12 +19,15 @@ export function EventPeek({
   event,
   conflicts,
   disabled,
+  onConflictClick,
   children,
 }: {
   event: GridEvent
   conflicts: Array<GridEvent>
   /** suppress while any marker is being dragged */
   disabled: boolean
+  /** makes cross-calendar conflict rows clickable (compare view) */
+  onConflictClick?: (event: GridEvent) => void
   children: React.ReactElement
 }) {
   const [open, setOpen] = React.useState(false)
@@ -105,30 +107,47 @@ export function EventPeek({
               </span>
               {conflicts.map((conflict) => {
                 const crossCalendar = conflict.calendarId !== event.calendarId
-                return (
-                  <div
-                    key={conflict._id}
-                    className="flex items-center gap-1.5 text-xs"
-                  >
-                    {crossCalendar ? (
-                      <TriangleAlert className="size-3 shrink-0 text-amber-600 dark:text-amber-400" />
-                    ) : (
-                      <ColorDot color={conflict.color} className="size-2" />
-                    )}
-                    <span className="truncate">
+                const clickable = Boolean(
+                  crossCalendar && conflict.calendarId && onConflictClick
+                )
+                const content = (
+                  <>
+                    <ColorDot color={conflict.color} className="size-2" />
+                    <span className="min-w-0 flex-1 truncate">
                       {conflict.title || UNTITLED_EVENT}
                     </span>
                     {crossCalendar && conflict.calendarName && (
-                      <span
-                        className={cn(
-                          "ml-auto shrink-0 rounded-full px-1.5 py-px text-[10px] font-medium",
-                          "bg-amber-500/15 text-amber-700 dark:text-amber-300"
-                        )}
-                      >
+                      <span className="shrink-0 text-[10px] text-muted-foreground">
                         {conflict.calendarName}
                       </span>
                     )}
-                  </div>
+                    {clickable && (
+                      <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
+                    )}
+                  </>
+                )
+                if (!clickable) {
+                  return (
+                    <div
+                      key={conflict._id}
+                      className="flex items-center gap-1.5 text-xs"
+                    >
+                      {content}
+                    </div>
+                  )
+                }
+                return (
+                  <button
+                    key={conflict._id}
+                    type="button"
+                    className="-mx-1.5 flex cursor-pointer items-center gap-1.5 rounded-md px-1.5 py-0.5 text-left text-xs transition-colors hover:bg-muted"
+                    onClick={() => {
+                      setOpen(false)
+                      onConflictClick?.(conflict)
+                    }}
+                  >
+                    {content}
+                  </button>
                 )
               })}
             </div>

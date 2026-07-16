@@ -3,7 +3,6 @@ import { format, isToday } from "date-fns"
 import {
   MIN_HOUR_HEIGHT,
   UNTITLED_EVENT,
-  conflictsAt,
   dateAtMinutes,
   dayEndMs,
   formatMinutes,
@@ -23,6 +22,8 @@ export type GridEvent = CalendarEvent & {
   categoryName?: string
   categoryEmoji?: string
   departmentName?: string
+  /** other events at the same minute, attached by CalendarApp */
+  conflicts?: Array<GridEvent>
 }
 
 const MARKER_HEIGHT = 24
@@ -41,6 +42,7 @@ export function TimeGrid({
   onEventClick,
   onEventMove,
   onDayClick,
+  onConflictClick,
 }: {
   days: Array<Date>
   events: Array<GridEvent>
@@ -54,6 +56,8 @@ export function TimeGrid({
   onEventClick: (event: GridEvent) => void
   onEventMove: (event: GridEvent, time: Date) => void
   onDayClick: (day: Date) => void
+  /** click on a cross-calendar conflict row inside a peek card */
+  onConflictClick?: (event: GridEvent) => void
 }) {
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const headerRef = React.useRef<HTMLDivElement>(null)
@@ -330,6 +334,7 @@ export function TimeGrid({
             onClick={(e) => handleColumnClick(e, day)}
             onEventClick={onEventClick}
             onMarkerMouseDown={startMarkerDrag}
+            onConflictClick={onConflictClick}
           />
         ))}
       </div>
@@ -349,6 +354,7 @@ function DayColumn({
   onClick,
   onEventClick,
   onMarkerMouseDown,
+  onConflictClick,
 }: {
   day: Date
   events: Array<GridEvent>
@@ -366,6 +372,7 @@ function DayColumn({
     day: Date,
     originMin: number
   ) => void
+  onConflictClick?: (event: GridEvent) => void
 }) {
   const dayStart = day.getTime()
   const dayEnd = dayEndMs(day)
@@ -373,22 +380,22 @@ function DayColumn({
   // The hover "dial": a snapped time indicator that follows the cursor.
   const [dial, setDial] = React.useState<number | null>(null)
 
+  // Split from the layout memo: `moving` changes per mousemove during a
+  // drag, and the day's events don't.
+  const dayEvents = React.useMemo(
+    () => events.filter((e) => e.time! >= dayStart && e.time! < dayEnd),
+    [events, dayStart, dayEnd]
+  )
+
   const positioned = React.useMemo(() => {
-    const dayEvents = events.filter(
-      (e) => e.time! >= dayStart && e.time! < dayEnd
-    )
     return layoutDayEvents(
       dayEvents.map((e) => ({
         item: e,
         startMin:
           moving?.id === e._id ? moving.min : minutesIntoDay(new Date(e.time!)),
       }))
-      // Same-time events always share a day, so dayEvents covers them.
-    ).map((p) => ({
-      ...p,
-      conflicts: conflictsAt(dayEvents, p.item.time!, p.item._id),
-    }))
-  }, [events, dayStart, dayEnd, moving])
+    )
+  }, [dayEvents, moving])
 
   const markerTop = (startMin: number) =>
     Math.min(
@@ -425,7 +432,7 @@ function DayColumn({
           </span>
         </div>
       )}
-      {positioned.map(({ item, startMin, col, cols, conflicts }, i) => {
+      {positioned.map(({ item, startMin, col, cols }, i) => {
         const isMoving = moving?.id === item._id
         const left = `calc((100% - 10px) * ${col / cols} + 3px)`
         const width = `calc((100% - 10px) * ${1 / cols} - 3px)`
@@ -433,8 +440,9 @@ function DayColumn({
           <React.Fragment key={item._id}>
             <EventPeek
               event={item}
-              conflicts={conflicts}
+              conflicts={item.conflicts ?? []}
               disabled={moving !== null}
+              onConflictClick={onConflictClick}
             >
               <div
                 role="button"

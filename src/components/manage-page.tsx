@@ -3,10 +3,14 @@ import { Link } from "@tanstack/react-router"
 import { ArrowLeft, Building2 } from "lucide-react"
 import { toast } from "sonner"
 import { api } from "../../convex/_generated/api"
-import { categoryEmoji, nextColor, nextEmoji } from "@/lib/calendar"
+import {
+  categoryEmoji,
+  guardDelete,
+  nextColor,
+  nextEmoji,
+} from "@/lib/calendar"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
-import { Toaster } from "@/components/ui/sonner"
 import { ColorPicker } from "./calendar/color-picker"
 import { EmojiPicker } from "./calendar/emoji-picker"
 import { ManageRow, NewLabelInput } from "./manage-row"
@@ -38,14 +42,6 @@ export function ManagePage() {
   const createDepartment = useMutation(api.departments.create)
   const updateDepartment = useMutation(api.departments.update)
   const removeDepartment = useMutation(api.departments.remove)
-
-  const guardDelete = async (name: string, deleted: boolean) => {
-    if (!deleted) {
-      toast.warning(
-        `“${name}” still has events. Reassign or delete them first.`
-      )
-    }
-  }
 
   return (
     <div className="flex min-h-svh flex-col bg-background text-foreground">
@@ -103,7 +99,11 @@ export function ManagePage() {
           <NewLabelInput
             label="New calendar"
             onCreate={async (name) => {
-              await createCalendar({ name, color: nextColor(calendars) })
+              const { created } = await createCalendar({
+                name,
+                color: nextColor(calendars),
+              })
+              if (!created) toast.info(`“${name}” already exists.`)
             }}
           />
         </section>
@@ -186,7 +186,6 @@ export function ManagePage() {
           />
         </section>
       </main>
-      <Toaster position="bottom-left" />
     </div>
   )
 }

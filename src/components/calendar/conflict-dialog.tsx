@@ -1,10 +1,16 @@
+import * as React from "react"
 import { format } from "date-fns"
-import { CalendarRange, TriangleAlert } from "lucide-react"
 import {
+  Building2,
+  CalendarRange,
+  ChevronDown,
+  TriangleAlert,
+} from "lucide-react"
+import {
+  DEFAULT_EVENT_COLOR,
   UNTITLED_EVENT,
-  byId,
   categoryEmoji,
-  eventColor,
+  departmentName,
   formatDaySpan,
 } from "@/lib/calendar"
 import type {
@@ -14,7 +20,7 @@ import type {
   Category,
   Department,
 } from "@/lib/calendar"
-import type { Id } from "../../../convex/_generated/dataModel"
+import { cn } from "@/lib/utils"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -25,156 +31,184 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible"
 import { ColorDot } from "./label-picker"
 
-/** The events occupying a time slot, rendered as proper event rows.
- * Conflicts from a different calendar than `calendarId` get called out. */
-export function ConflictList({
-  time,
-  conflicts,
-  calendars,
-  categories,
-  departments,
-  calendarId,
-}: {
-  time: number
-  conflicts: Array<CalendarEvent>
+type Lookups = {
   calendars: Array<CalendarDoc>
   categories: Array<Category>
   departments: Array<Department>
-  calendarId: Id<"calendars"> | null
+}
+
+/**
+ * One quiet row: calendar dot, title, and the calendar it lives on.
+ * Rows holding more (category, department, details) expand on click.
+ */
+function EventRow({
+  event,
+  meta,
+  lookups,
+}: {
+  event: CalendarEvent
+  /** right-aligned label — the calendar name, and a span for multi-day */
+  meta?: string
+  lookups: Lookups
 }) {
-  const calendarsById = byId(calendars)
-  const categoriesById = byId(categories)
-  const departmentsById = byId(departments)
+  const [open, setOpen] = React.useState(false)
+
+  const calendar = event.calendarId
+    ? lookups.calendars.find((c) => c._id === event.calendarId)
+    : undefined
+  const category = event.categoryId
+    ? lookups.categories.find((c) => c._id === event.categoryId)
+    : undefined
+  const department = departmentName(event, lookups.departments)
+  const hasMore = Boolean(category || department || event.details)
+
+  const row = (
+    <>
+      <ColorDot
+        color={calendar?.color ?? DEFAULT_EVENT_COLOR}
+        className="size-2"
+      />
+      <span className="min-w-0 flex-1 truncate text-sm">
+        {event.title || UNTITLED_EVENT}
+      </span>
+      {meta && (
+        <span className="shrink-0 text-xs text-muted-foreground">{meta}</span>
+      )}
+    </>
+  )
+
+  if (!hasMore) {
+    return <li className="flex items-center gap-2.5 px-3 py-2">{row}</li>
+  }
+
   return (
-    <div className="animate-in overflow-hidden rounded-2xl border border-amber-500/30 duration-300 fade-in slide-in-from-top-2">
-      <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-3 py-2">
-        <TriangleAlert className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-        <span className="text-xs font-medium text-amber-700 dark:text-amber-300">
-          Already booked at {format(time, "h:mm a")}
+    <li>
+      <Collapsible
+        open={open}
+        onOpenChange={setOpen}
+        className={cn("transition-colors duration-200", open && "bg-muted/40")}
+      >
+        <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/40">
+          {row}
+          <ChevronDown className="size-3 shrink-0 text-muted-foreground/60 transition-transform duration-200 group-data-[panel-open]:rotate-180" />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="h-[var(--collapsible-panel-height)] overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
+          <div className="flex flex-col gap-1.5 px-3 pt-0.5 pb-2.5 pl-[30px] text-xs text-muted-foreground">
+            {category && (
+              <span className="flex items-center gap-1.5">
+                <span aria-hidden className="w-3 text-center leading-none">
+                  {categoryEmoji(category)}
+                </span>
+                {category.name}
+              </span>
+            )}
+            {department && (
+              <span className="flex items-center gap-1.5">
+                <Building2 className="size-3 shrink-0" />
+                {department}
+              </span>
+            )}
+            {event.details && (
+              <p className="line-clamp-3 leading-relaxed text-pretty">
+                {event.details}
+              </p>
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </li>
+  )
+}
+
+function Panel({
+  icon,
+  label,
+  children,
+}: {
+  icon: React.ReactNode
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="animate-in overflow-hidden rounded-xl border border-border/60 duration-300 fade-in slide-in-from-top-2">
+      <div className="flex items-center gap-2 border-b border-border/60 px-3 py-2">
+        {icon}
+        <span className="text-xs font-medium text-muted-foreground">
+          {label}
         </span>
       </div>
-      <ul className="max-h-44 divide-y divide-border/60 overflow-y-auto">
-        {conflicts.map((event) => {
-          const calendar = event.calendarId
-            ? calendarsById.get(event.calendarId)
-            : undefined
-          const category = event.categoryId
-            ? categoriesById.get(event.categoryId)
-            : undefined
-          const department = event.departmentId
-            ? departmentsById.get(event.departmentId)?.name
-            : event.department
-          const crossCalendar = event.calendarId !== (calendarId ?? undefined)
-          const context = [
-            calendar?.name,
-            category && `${categoryEmoji(category)} ${category.name}`,
-            department,
-          ]
-            .filter(Boolean)
-            .join(" · ")
-          return (
-            <li key={event._id} className="flex items-start gap-2.5 px-3 py-2">
-              <ColorDot
-                color={eventColor(event, calendarsById)}
-                className="mt-[5px]"
-              />
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="truncate text-sm font-medium">
-                    {event.title || UNTITLED_EVENT}
-                  </span>
-                  <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                    {format(event.time!, "h:mm a")}
-                  </span>
-                </div>
-                {context && (
-                  <span className="truncate text-xs text-muted-foreground">
-                    {context}
-                  </span>
-                )}
-                {crossCalendar && (
-                  <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                    On a different calendar
-                  </span>
-                )}
-                {event.details && (
-                  <span className="line-clamp-2 text-xs text-pretty text-muted-foreground">
-                    {event.details}
-                  </span>
-                )}
-              </div>
-            </li>
-          )
-        })}
+      <ul className="max-h-56 divide-y divide-border/60 overflow-y-auto">
+        {children}
       </ul>
     </div>
   )
 }
 
-/**
- * All-day events covering the chosen day(s) — quieter context than the
- * amber time-clash list, since they don't occupy a specific minute.
- */
+/** Timed events occupying the exact same minute. */
+export function ConflictList({
+  time,
+  conflicts,
+  ...lookups
+}: {
+  time: number
+  conflicts: Array<CalendarEvent>
+} & Lookups) {
+  return (
+    <Panel
+      icon={
+        <TriangleAlert className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+      }
+      label={`Already booked at ${format(time, "h:mm a")}`}
+    >
+      {conflicts.map((event) => (
+        <EventRow
+          key={event._id}
+          event={event}
+          meta={lookups.calendars.find((c) => c._id === event.calendarId)?.name}
+          lookups={lookups}
+        />
+      ))}
+    </Panel>
+  )
+}
+
+/** All-day events covering the chosen day(s) — context, not a clash. */
 export function AllDayList({
   events,
-  calendars,
-  categories,
-  calendarId,
+  ...lookups
 }: {
   events: Array<AllDayEvent>
-  calendars: Array<CalendarDoc>
-  categories: Array<Category>
-  calendarId: Id<"calendars"> | null
-}) {
-  const calendarsById = byId(calendars)
-  const categoriesById = byId(categories)
+} & Lookups) {
   return (
-    <div className="animate-in overflow-hidden rounded-2xl border border-border/60 duration-300 fade-in slide-in-from-top-2">
-      <div className="flex items-center gap-2 border-b border-border/60 bg-muted/50 px-3 py-2">
+    <Panel
+      icon={
         <CalendarRange className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="text-xs font-medium text-muted-foreground">
-          All day, same{" "}
-          {events.some((e) => e.startDate !== e.endDate) ? "days" : "day"}
-        </span>
-      </div>
-      <ul className="max-h-32 divide-y divide-border/60 overflow-y-auto">
-        {events.map((event) => {
-          const calendar = event.calendarId
-            ? calendarsById.get(event.calendarId)
-            : undefined
-          const category = event.categoryId
-            ? categoriesById.get(event.categoryId)
-            : undefined
-          const crossCalendar = event.calendarId !== (calendarId ?? undefined)
-          return (
-            <li
-              key={event._id}
-              className="flex items-center gap-2.5 px-3 py-1.5"
-            >
-              <ColorDot color={eventColor(event, calendarsById)} />
-              {category && (
-                <span aria-hidden className="shrink-0 text-xs leading-none">
-                  {categoryEmoji(category)}
-                </span>
-              )}
-              <span className="min-w-0 flex-1 truncate text-sm">
-                {event.title || UNTITLED_EVENT}
-              </span>
-              {crossCalendar && calendar && (
-                <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-px text-[10px] font-medium text-amber-700 dark:text-amber-300">
-                  {calendar.name}
-                </span>
-              )}
-              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                {formatDaySpan(event)}
-              </span>
-            </li>
-          )
-        })}
-      </ul>
-    </div>
+      }
+      label="All day"
+    >
+      {events.map((event) => {
+        const name = lookups.calendars.find(
+          (c) => c._id === event.calendarId
+        )?.name
+        const span =
+          event.startDate !== event.endDate ? formatDaySpan(event) : undefined
+        return (
+          <EventRow
+            key={event._id}
+            event={event}
+            meta={[span, name].filter(Boolean).join(" · ") || undefined}
+            lookups={lookups}
+          />
+        )
+      })}
+    </Panel>
   )
 }
 
@@ -182,22 +216,15 @@ export function AllDayList({
 export function ConflictDialog({
   time,
   conflicts,
-  calendars,
-  categories,
-  departments,
-  calendarId,
   onCancel,
   onContinue,
+  ...lookups
 }: {
   time: number
   conflicts: Array<CalendarEvent>
-  calendars: Array<CalendarDoc>
-  categories: Array<Category>
-  departments: Array<Department>
-  calendarId: Id<"calendars"> | null
   onCancel: () => void
   onContinue: () => void
-}) {
+} & Lookups) {
   return (
     <AlertDialog open onOpenChange={(value) => !value && onCancel()}>
       <AlertDialogContent>
@@ -209,14 +236,7 @@ export function ConflictDialog({
             .
           </AlertDialogDescription>
         </AlertDialogHeader>
-        <ConflictList
-          time={time}
-          conflicts={conflicts}
-          calendars={calendars}
-          categories={categories}
-          departments={departments}
-          calendarId={calendarId}
-        />
+        <ConflictList time={time} conflicts={conflicts} {...lookups} />
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction onClick={onContinue}>

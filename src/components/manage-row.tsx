@@ -1,7 +1,9 @@
 import * as React from "react"
 import { Plus, Trash2 } from "lucide-react"
+import { formatEventCount } from "@/lib/calendar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { useInlineCreate } from "@/hooks/use-inline-create"
 
 /**
  * One manage-page entry: badge, a name that edits in place (Enter or
@@ -55,7 +57,7 @@ export function ManageRow({
         className="h-7 min-w-0 flex-1 rounded-md border-transparent bg-transparent px-1.5 text-sm shadow-none focus-visible:border-transparent focus-visible:bg-muted focus-visible:ring-0 dark:bg-transparent"
       />
       <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
-        {count === 0 ? "" : count === 1 ? "1 event" : `${count} events`}
+        {count === 0 ? "" : formatEventCount(count)}
       </span>
       <Button
         variant="ghost"
@@ -78,22 +80,16 @@ export function NewLabelInput({
   label: string
   onCreate: (name: string) => Promise<void>
 }) {
-  const [adding, setAdding] = React.useState(false)
-  const [name, setName] = React.useState("")
+  const creator = useInlineCreate(async (name) => {
+    await onCreate(name)
+  })
 
-  const commit = async () => {
-    const trimmed = name.trim()
-    setAdding(false)
-    setName("")
-    if (trimmed) await onCreate(trimmed)
-  }
-
-  if (!adding) {
+  if (!creator.adding) {
     return (
       <button
         type="button"
         className="-mx-2 mt-0.5 flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-muted-foreground transition-colors duration-150 hover:bg-muted/50 hover:text-foreground"
-        onClick={() => setAdding(true)}
+        onClick={creator.start}
       >
         <Plus className="size-4" />
         {label}
@@ -103,21 +99,8 @@ export function NewLabelInput({
 
   return (
     <Input
-      autoFocus
       placeholder={label}
-      value={name}
-      onChange={(e) => setName(e.target.value)}
-      onBlur={() => void commit()}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault()
-          void commit()
-        }
-        if (e.key === "Escape") {
-          setName("")
-          setAdding(false)
-        }
-      }}
+      {...creator.inputProps}
       className="mt-1 h-8 animate-in rounded-md bg-muted/60 px-2 text-sm shadow-none duration-150 fade-in focus-visible:border-transparent focus-visible:bg-muted focus-visible:ring-0"
     />
   )

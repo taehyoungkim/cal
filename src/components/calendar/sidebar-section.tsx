@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/collapsible"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { useInlineCreate } from "@/hooks/use-inline-create"
 import { EmojiPicker } from "./emoji-picker"
 import { LabelBadge } from "./label-picker"
 import type { LucideIcon } from "lucide-react"
@@ -51,19 +52,13 @@ export function LabelList<
   const [open, setOpenState] = React.useState(
     () => localStorage.getItem(storageKey) !== "closed"
   )
-  const [adding, setAdding] = React.useState(false)
-  const [name, setName] = React.useState("")
+  const creator = useInlineCreate(async (name) => {
+    await onCreate?.(name)
+  })
 
   const setOpen = (next: boolean) => {
     setOpenState(next)
     localStorage.setItem(storageKey, next ? "open" : "closed")
-  }
-
-  const commit = async () => {
-    const trimmed = name.trim()
-    setAdding(false)
-    setName("")
-    if (trimmed && onCreate) await onCreate(trimmed)
   }
 
   return (
@@ -78,7 +73,7 @@ export function LabelList<
             </span>
           )}
         </CollapsibleTrigger>
-        {onCreate && !adding && (
+        {onCreate && !creator.adding && (
           <Button
             variant="ghost"
             size="icon-sm"
@@ -86,7 +81,7 @@ export function LabelList<
             className="size-6 text-muted-foreground hover:text-foreground"
             onClick={() => {
               if (!open) setOpen(true)
-              setAdding(true)
+              creator.start()
             }}
           >
             <Plus className="size-4" />
@@ -95,7 +90,7 @@ export function LabelList<
       </div>
       <CollapsibleContent className="h-[var(--collapsible-panel-height)] overflow-hidden transition-[height] duration-200 ease-out data-[ending-style]:h-0 data-[starting-style]:h-0">
         <div className="flex flex-col gap-1 pt-1">
-          {items.length === 0 && !adding && (
+          {items.length === 0 && !creator.adding && (
             <p className="px-1 py-2 text-sm text-pretty text-muted-foreground">
               {emptyHint}
             </p>
@@ -143,23 +138,10 @@ export function LabelList<
               </Button>
             </div>
           ))}
-          {adding && (
+          {creator.adding && (
             <Input
-              autoFocus
               placeholder={createLabel}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onBlur={() => void commit()}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault()
-                  void commit()
-                }
-                if (e.key === "Escape") {
-                  setName("")
-                  setAdding(false)
-                }
-              }}
+              {...creator.inputProps}
               className="h-8 animate-in rounded-md bg-muted/60 px-2 text-sm shadow-none duration-150 fade-in slide-in-from-top-1 focus-visible:border-transparent focus-visible:bg-muted focus-visible:ring-0"
             />
           )}

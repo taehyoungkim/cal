@@ -22,7 +22,9 @@ export function CalendarPicker({
       items={calendars}
       value={value}
       onChange={onChange}
-      onCreate={(name) => createCalendar({ name, color: nextColor(calendars) })}
+      onCreate={async (name) =>
+        (await createCalendar({ name, color: nextColor(calendars) })).id
+      }
       icon={CalendarRange}
       noneLabel="No calendar"
       emptyLabel="No calendars yet."

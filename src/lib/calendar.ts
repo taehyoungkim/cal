@@ -1,4 +1,5 @@
 import { addDays, format, parseISO, startOfDay, startOfWeek } from "date-fns"
+import { toast } from "sonner"
 import type { Doc } from "../../convex/_generated/dataModel"
 
 export type CalendarView = "day" | "week" | "month"
@@ -13,19 +14,23 @@ export type TimedEvent = CalendarEvent & { time: number }
 /** An all-day event: an inclusive "yyyy-MM-dd" span. */
 export type AllDayEvent = CalendarEvent & { startDate: string; endDate: string }
 
-export function isAllDay(event: CalendarEvent): event is AllDayEvent {
+export function isAllDay<T extends CalendarEvent>(
+  event: T
+): event is T & AllDayEvent {
   return event.startDate !== undefined
 }
 
-export function isTimed(event: CalendarEvent): event is TimedEvent {
+export function isTimed<T extends CalendarEvent>(
+  event: T
+): event is T & TimedEvent {
   return event.time !== undefined
 }
 
 /** Grid interactions snap ("magnetically") to five-minute marks; the
  * dialog's time field goes down to the minute. */
-export const SNAP_MINUTES = 5
+const SNAP_MINUTES = 5
 /** Visual footprint of a marker, used to pack side-by-side columns. */
-export const MARKER_SPAN_MINUTES = 30
+const MARKER_SPAN_MINUTES = 30
 export const MIN_HOUR_HEIGHT = 48
 export const DAY_MINUTES = 24 * 60
 
@@ -126,6 +131,33 @@ export function categoryEmoji(category: { emoji?: string }): string {
   return category.emoji ?? DEFAULT_CATEGORY_EMOJI
 }
 
+/** The URL segment for a calendar: its slug, or the id for pre-slug rows. */
+export function calendarKey(calendar: CalendarDoc): string {
+  return calendar.slug ?? calendar._id
+}
+
+/** "1 event" / "3 events" — shared by every usage-count label. */
+export function formatEventCount(count: number): string {
+  return count === 1 ? "1 event" : `${count} events`
+}
+
+/** The event's department label, honoring the legacy free-text field. */
+export function departmentName(
+  event: CalendarEvent,
+  departments: Array<Department>
+): string | undefined {
+  return event.departmentId
+    ? departments.find((d) => d._id === event.departmentId)?.name
+    : event.department
+}
+
+/** Toasts when a delete was refused because events still reference it. */
+export function guardDelete(name: string, deleted: boolean): void {
+  if (!deleted) {
+    toast.warning(`“${name}” still has events. Reassign or delete them first.`)
+  }
+}
+
 /** The event's display color — always its calendar's. */
 export function eventColor(
   event: CalendarEvent,
@@ -208,15 +240,6 @@ export function conflictsAt<T extends CalendarEvent>(
   excludeId?: CalendarEvent["_id"]
 ): Array<T> {
   return events.filter((e) => e.time === time && e._id !== excludeId)
-}
-
-/** Whether any of `conflicts` lives on a different calendar than `event` —
- * the cross-calendar overlaps the team asked to have flagged. */
-export function hasCrossCalendarConflict(
-  event: CalendarEvent,
-  conflicts: Array<CalendarEvent>
-): boolean {
-  return conflicts.some((c) => c.calendarId !== event.calendarId)
 }
 
 export type PositionedEvent<T> = {

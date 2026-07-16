@@ -161,12 +161,14 @@ async function checkRefs(
   }
 ) {
   // Convex validates the id format but not the row's existence.
-  if (refs.calendarId && !(await ctx.db.get(refs.calendarId)))
-    throw new Error("Unknown calendar")
-  if (refs.categoryId && !(await ctx.db.get(refs.categoryId)))
-    throw new Error("Unknown category")
-  if (refs.departmentId && !(await ctx.db.get(refs.departmentId)))
-    throw new Error("Unknown department")
+  const [calendar, category, department] = await Promise.all([
+    refs.calendarId ? ctx.db.get(refs.calendarId) : null,
+    refs.categoryId ? ctx.db.get(refs.categoryId) : null,
+    refs.departmentId ? ctx.db.get(refs.departmentId) : null,
+  ])
+  if (refs.calendarId && !calendar) throw new Error("Unknown calendar")
+  if (refs.categoryId && !category) throw new Error("Unknown category")
+  if (refs.departmentId && !department) throw new Error("Unknown department")
 }
 
 export const create = mutation({
